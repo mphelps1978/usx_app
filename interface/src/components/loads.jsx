@@ -403,7 +403,9 @@ function Loads() {
 									<TableCell align="right">Deadhead Miles</TableCell>
 									<TableCell align="right">Loaded Miles</TableCell>
 									<TableCell align="right">Weight</TableCell>
-									<TableCell align="right">Linehaul</TableCell>
+									{userSettings?.driverPayType === "percentage" && (
+										<TableCell align="right">Linehaul</TableCell>
+									)}
 									<TableCell align="right">FSC / Rate</TableCell>
 									<TableCell align="right">Calculated Gross</TableCell>
 									<TableCell align="right">Fuel Cost</TableCell>
@@ -447,12 +449,14 @@ function Loads() {
 										<TableCell align="right">{load.deadheadMiles}</TableCell>
 										<TableCell align="right">{load.loadedMiles}</TableCell>
 										<TableCell align="right">{load.weight}</TableCell>
-										<TableCell align="right">
-											{load.driverPayType === "percentage" &&
-											load.linehaul !== null
-												? `$${(load.linehaul || 0).toFixed(2)}`
-												: "N/A"}
-										</TableCell>
+										{userSettings?.driverPayType === "percentage" && (
+											<TableCell align="right">
+												{load.driverPayType === "percentage" &&
+												load.linehaul !== null
+													? `$${(load.linehaul || 0).toFixed(2)}`
+													: "N/A"}
+											</TableCell>
+										)}
 										<TableCell align="right">
 											{load.driverPayType === "percentage" && load.fsc !== null
 												? `$${(load.fsc || 0).toFixed(2)} (Total)`

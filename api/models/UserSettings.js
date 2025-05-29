@@ -28,9 +28,30 @@ module.exports = (sequelize) => {
     // Placeholder for mileage-based settings - to be expanded
     // e.g., mileageRateTier1: DataTypes.FLOAT, 
     //       mileageBracket1EndMiles: DataTypes.INTEGER,
-  }, {
-    timestamps: true, // Adds createdAt and updatedAt
-  });
+    fuelRoadUseTax: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0.01
+    },
+    maintenanceReserve: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0.05
+    },
+    bondDeposit: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0.04
+    },
+    mrpFee: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0.09
+    },
+  },
+    {
+      timestamps: true, // Adds createdAt and updatedAt
+    });
 
   UserSettings.associate = (models) => {
     UserSettings.belongsTo(models.User, {

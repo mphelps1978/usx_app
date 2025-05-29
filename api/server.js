@@ -52,7 +52,7 @@ app.post('/api/login', async (req, res) => {
     if (!user || user.password !== password) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
     res.json({ token });
   } catch (err) {
     console.error('Login error:', err);
@@ -483,7 +483,17 @@ app.get('/api/users/settings', authenticate, async (req, res) => {
 // PUT (update/create) user's settings
 app.put('/api/users/settings', authenticate, async (req, res) => {
   try {
-    const { driverPayType, percentageRate } = req.body;
+    // Fields expected from frontend.
+    // percentageRate and tax/fee fields are expected as decimals (e.g., 0.68 for 68%, 0.05 for 5 cents)
+    const {
+      driverPayType,
+      percentageRate,
+      fuelRoadUseTax,
+      maintenanceReserve,
+      bondDeposit,
+      mrpFee
+    } = req.body;
+
     const updateData = {};
 
     if (driverPayType) {
@@ -491,32 +501,46 @@ app.put('/api/users/settings', authenticate, async (req, res) => {
         return res.status(400).json({ message: 'Invalid driverPayType' });
       }
       updateData.driverPayType = driverPayType;
+      // If switching to mileage, explicitly nullify percentageRate
+      if (driverPayType === 'mileage') {
+        updateData.percentageRate = null;
+      }
     }
 
+    // Handle percentageRate (expected as 0.0-1.0 from frontend)
     if (percentageRate !== undefined) {
       const rate = parseFloat(percentageRate);
-      // Assuming frontend sends percentage as 0-100, convert to 0-1 for storage
-      // If frontend already sends 0-1, this conversion is not needed / needs adjustment
-      if (isNaN(rate) || rate < 0 || rate > 100) {
-        return res.status(400).json({ message: 'Invalid percentageRate. Must be between 0 and 100.' });
+      if (isNaN(rate) || rate < 0 || rate > 1) { // Validating as 0.0-1.0
+        return res.status(400).json({ message: 'Invalid percentageRate. Must be a decimal between 0 and 1.' });
       }
-      updateData.percentageRate = rate / 100; // Store as decimal (e.g., 0.68 for 68%)
-    } else if (driverPayType === 'percentage' && percentageRate === undefined) {
-      // If setting to percentage and no rate is provided, do not clear it, let model default handle or keep existing if updating
+      updateData.percentageRate = rate;
     }
 
-    // If switching to mileage, explicitly nullify percentageRate if not relevant
-    if (driverPayType === 'mileage') {
-      updateData.percentageRate = null;
+    // Generic handler for other float settings (e.g., fuelRoadUseTax, maintenanceReserve)
+    // These are also expected as decimals from the frontend.
+    const otherFloatSettings = {
+      fuelRoadUseTax,
+      maintenanceReserve,
+      bondDeposit,
+      mrpFee
+    };
+
+    for (const key in otherFloatSettings) {
+      const value = otherFloatSettings[key];
+      if (value !== undefined) {
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) {
+          return res.status(400).json({ message: `Invalid value for ${key}. Must be a number.` });
+        }
+        // Add specific range validation if necessary, e.g., if (numValue < 0 || numValue > 1)
+        updateData[key] = numValue;
+      }
     }
 
     const [settings, created] = await UserSettings.upsert(
       { userId: req.userId, ...updateData },
       { returning: true } // Ensures the updated/created record is returned
     );
-
-    // Sequelize upsert might return an array with the instance and a boolean for some dialects
-    // or just the instance. Standardize to return the settings object.
     const resultSettings = Array.isArray(settings) ? settings[0] : settings;
 
     res.json(resultSettings);

@@ -33,6 +33,10 @@ function Settings() {
 	const [localSettings, setLocalSettings] = useState({
 		driverPayType: "",
 		percentageRate: "",
+		fuelRoadUseTax: "",
+		// Consider adding other model fields here if they will be managed
+		// maintenanceReserve: "",
+		// bondDeposit: "",
 	});
 	const [saveSuccess, setSaveSuccess] = useState(false);
 	const [saveError, setSaveError] = useState(null); // For errors from save operation
@@ -49,7 +53,28 @@ function Settings() {
 				percentageRate:
 					settings.percentageRate !== null &&
 					settings.percentageRate !== undefined
-						? (settings.percentageRate * 100).toString()
+						? (settings.percentageRate * 100).toString() // Display as 0-100
+						: "0", // Default to "0" if null/undefined
+				fuelRoadUseTax:
+					settings.fuelRoadUseTax !== null &&
+					settings.fuelRoadUseTax !== undefined
+						? (settings.fuelRoadUseTax * 100).toString() // Display as 0-100
+						: "0", // Default to "0" or based on model's default (e.g., (0.01 * 100).toString())
+				// Populate other settings from the model similarly:
+				// maintenanceReserve: settings.maintenanceReserve !== null && settings.maintenanceReserve !== undefined ? (settings.maintenanceReserve * 100).toString() : "0",
+				// bondDeposit: settings.bondDeposit !== null && settings.bondDeposit !== undefined ? (settings.bondDeposit * 100).toString() : "0",
+				maintenanceReserve:
+					settings.maintenanceReservex !== null &&
+					settings.maintenanceReserve !== undefined
+						? (settings.maintenanceReserve * 100).toString() // Display as 0-100
+						: "0",
+				bondDeposit:
+					settings.bondDeposit !== null && settings.bondDeposit !== undefined
+						? (settings.bondDeposit * 100).toString() // Display as 0-100
+						: "0",
+				mrpFee:
+					settings.mrpFee !== null && settings.mrpFee !== undefined
+						? (settings.mrpFee * 100).toString() // Display as 0-100
 						: "0",
 			});
 		}
@@ -76,23 +101,65 @@ function Settings() {
 		setSaveError(null);
 		setSaveSuccess(false);
 
-		const payload = {
+		const settingsToSave = {
 			driverPayType: localSettings.driverPayType,
+			fuelRoadUseTax: localSettings.fuelRoadUseTax,
 		};
 
 		if (localSettings.driverPayType === "percentage") {
-			const rate = parseFloat(localSettings.percentageRate);
-			if (isNaN(rate) || rate < 0 || rate > 100) {
+			const percRate = parseFloat(localSettings.percentageRate);
+			if (isNaN(percRate) || percRate < 0 || percRate > 100) {
 				setSaveError("Percentage Rate must be a number between 0 and 100.");
 				return;
 			}
-			payload.percentageRate = rate; // Send as 0-100, backend converts to 0.0-1.0
+			settingsToSave.percentageRate = percRate / 100; // Convert to 0.0-1.0 for backend
+		} else {
+			settingsToSave.percentageRate = null; // Explicitly nullify if not percentage type
 		}
-		// No need to send percentageRate if type is mileage, backend will nullify it.
 
-		const resultAction = await dispatch(saveUserSettings(payload));
+		// Handle fuelRoadUseTax (assuming UI input is 0-100)
+		const fuelTaxRate = parseFloat(localSettings.fuelRoadUseTax);
+		if (isNaN(fuelTaxRate) || fuelTaxRate < 0 || fuelTaxRate > 100) {
+			setSaveError("Fuel Road Use Tax must be a number between 0 and 100.");
+			return;
+		}
+		settingsToSave.fuelRoadUseTax = fuelTaxRate / 100; // Convert to 0.0-1.0 for backend
+
+		const maintenanceReserve = parseFloat(localSettings.maintenanceReserve);
+		if (
+			isNaN(maintenanceReserve) ||
+			maintenanceReserve < 0 ||
+			maintenanceReserve > 100
+		) {
+			setSaveError("Maintenance Reserve must be a number between 0 and 100.");
+			return;
+		}
+		settingsToSave.maintenanceReserve = maintenanceReserve / 100; // C
+		//
+		const bondDeposit = parseFloat(localSettings.bondDeposit);
+		if (isNaN(bondDeposit) || bondDeposit < 0 || bondDeposit > 100) {
+			setSaveError("Bond Deposit must be a number between 0 and 100.");
+			return;
+		}
+		settingsToSave.bondDeposit = bondDeposit / 100; // Convert to 0.0-1.0 for backend
+
+		const mrpFee = parseFloat(localSettings.mrpFee);
+		if (isNaN(mrpFee) || mrpFee < 0 || mrpFee > 100) {
+			setSaveError("MRP Fee must be a number between 0 and 100.");
+			return;
+		}
+		settingsToSave.mrpFee = mrpFee / 100; // Convert to 0.0-1.0 for backend
+
+		// TODO: Add other settings from your model to settingsToSave, converting them as needed
+		// e.g., settingsToSave.maintenanceReserve = parseFloat(localSettings.maintenanceReserve) / 100;
+		//      settingsToSave.bondDeposit = parseFloat(localSettings.bondDeposit) / 100;
+		//      settingsToSave.mrpFee = parseFloat(localSettings.mrpFee) / 100;
+		// Remember to add corresponding input fields and state management for these.
+
+		const resultAction = await dispatch(saveUserSettings(settingsToSave));
 		if (saveUserSettings.fulfilled.match(resultAction)) {
 			setSaveSuccess(true);
+			dispatch(fetchUserSettings()); // Optionally re-fetch to confirm
 		} else if (saveUserSettings.rejected.match(resultAction)) {
 			setSaveError(
 				resultAction.payload?.message ||
@@ -184,6 +251,54 @@ function Settings() {
 								</Typography>
 							</Grid>
 						)}
+						<Grid item xs={12} sm={6}>
+							<TextField
+								label="Fuel Road Use Tax (cents)"
+								type="number"
+								name="fuelRoadUseTax" // Corrected name to match state key
+								value={localSettings.fuelRoadUseTax}
+								onChange={handleInputChange}
+								fullWidth
+								helperText="Enter value in cents (e.g., 7.5 for 7.5 cents)"
+								inputProps={{ min: "0", max: "100", step: "0.01" }}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6}>
+							<TextField
+								label="Maintenance Reserve (cents)"
+								type="number"
+								name="maintenanceReserve" // Corrected name to match state key
+								value={localSettings.maintenanceReserve}
+								onChange={handleInputChange}
+								fullWidth
+								helperText="Enter value in cents (e.g., 7.5 for 7.5 cents)"
+								inputProps={{ min: "0", max: "100", step: "0.01" }}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6}>
+							<TextField
+								label="Bond Deposit (cents)"
+								type="number"
+								name="bondDeposit" // Corrected name to match state key
+								value={localSettings.bondDeposit}
+								onChange={handleInputChange}
+								fullWidth
+								helperText="Enter value in cents (e.g., 7.5 for 7.5 cents)"
+								inputProps={{ min: "0", max: "100", step: "0.01" }}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6}>
+							<TextField
+								label="MRP Fee (cents)"
+								type="number"
+								name="mrpFee" // Corrected name to match state key
+								value={localSettings.mrpFee}
+								onChange={handleInputChange}
+								fullWidth
+								helperText="Enter value in cents (e.g., 7.5 for 7.5 cents)"
+								inputProps={{ min: "0", max: "100", step: "0.01" }}
+							/>
+						</Grid>
 
 						<Grid item xs={12} sx={{ mt: 2 }}>
 							{saveError && (

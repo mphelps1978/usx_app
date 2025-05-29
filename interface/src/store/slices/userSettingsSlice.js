@@ -41,6 +41,10 @@ const initialState = {
   settings: {
     driverPayType: 'percentage', // Default structure
     percentageRate: 0.68,      // Default structure (stored as 0.0-1.0)
+    fuelRoadUseTax: 0.01,
+    maintenanceReserve: 0.05,
+    bondDeposit: 0.04,
+    mrpFee: 0.09
     // Add other settings fields with defaults as they are defined
   },
   loading: false,
