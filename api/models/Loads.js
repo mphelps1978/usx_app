@@ -14,6 +14,7 @@ module.exports = (sequelize) => {
     destinationState: { type: DataTypes.STRING, allowNull: false },
     deadheadMiles: { type: DataTypes.FLOAT, allowNull: false },
     loadedMiles: { type: DataTypes.FLOAT, allowNull: false },
+    totalMiles: { type: DataTypes.FLOAT, allowNull: true },
     weight: { type: DataTypes.FLOAT, allowNull: false },
     linehaul: { type: DataTypes.FLOAT, allowNull: true },
     fsc: { type: DataTypes.FLOAT, allowNull: true },
@@ -22,7 +23,13 @@ module.exports = (sequelize) => {
     calculatedGross: { type: DataTypes.FLOAT, allowNull: true },
     fuelCost: { type: DataTypes.FLOAT, allowNull: false },
     scaleCost: { type: DataTypes.FLOAT, allowNull: true, defaultValue: 0 },
+    fuelRoadUseTax: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    maintenanceReserve: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    bondDeposit: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    mrpFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+    totalDeductions: { type: DataTypes.FLOAT, allowNull: true },
     projectedNet: { type: DataTypes.FLOAT, allowNull: true },
+
   }, {
     timestamps: true,
   });

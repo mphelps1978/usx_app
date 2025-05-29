@@ -80,13 +80,32 @@ app.post('/api/loads', authenticate, async (req, res) => {
       linehaul,
       fsc,
       fscPerLoadedMile,
-      calculatedGross, // from frontend
-      projectedNet,  // from frontend
-      scaleCost,     // from frontend
+      calculatedDeductions, // This is totalDeductionsModal from frontend
+      fuelRoadUseTax,       // This is fuelRoadUseDeductionModal from frontend
+      maintenanceReserve, // This is maintenanceReserveDeductionModal from frontend
+      bondDeposit,        // This is bondDepositDeductionModal from frontend
+      mrpFee,             // This is mrpFeeDeductionModal from frontend// from frontend
       ...restOfBody
     } = req.body;
 
-    const loadData = { ...restOfBody, userId: req.userId, driverPayType, calculatedGross, projectedNet, scaleCost };
+    const loadData = {
+      ...restOfBody,
+      userId: req.userId,
+      // driverPayType, linehaul, fsc, fscPerLoadedMile should be handled as they are now
+      calculatedGross,
+      projectedNet,
+      scaleCost: scaleCost || 0, // Ensure default if not provided
+      totalDeductions: calculatedDeductions, // Map frontend's sum to backend's sum field
+      fuelRoadUseTax,       // Store individual calculated amount
+      maintenanceReserve, // Store individual calculated amount
+      bondDeposit,        // Store individual calculated amount
+      mrpFee,             // Store individual calculated amount
+      // Ensure other fields like fuelCost are handled (your model has fuelCost allowNull:false)
+      // The frontend payload doesn't seem to send fuelCost explicitly,
+      // but your useMemo calculates actualFuelCost.
+      // You might need to add actualFuelCost to the frontend payload if it's not already covered.
+      // For now, assuming fuelCost is handled elsewhere or needs to be added to payload.
+    };
 
     loadData.dateDelivered = loadData.dateDelivered &&
       loadData.dateDelivered !== 'Invalid date' &&

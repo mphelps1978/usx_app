@@ -109,6 +109,10 @@ function Loads() {
 		(state) => state.userSettings || { settings: {}, loading: false }
 	);
 	const formData = useSelector((state) => state.form || {});
+	console.log(
+		"[Loads.jsx Component Render] formData from useSelector:",
+		JSON.stringify(formData)
+	);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [modalError, setModalError] = useState(null);
 
@@ -164,49 +168,85 @@ function Loads() {
 	};
 
 	// Memoized values for modal calculations based on formData and userSettings
-	const { calculatedGrossModal, projectedNetModal, totalMilesModal } =
-		useMemo(() => {
-			const linehaul = parseFloat(formData.linehaul) || 0;
-			const fsc = parseFloat(formData.fsc) || 0; // For percentage: total FSC
-			const fscPerLoadedMile = parseFloat(formData.fscPerLoadedMile) || 0; // For mileage
-			const deadheadMiles = parseFloat(formData.deadheadMiles) || 0;
-			const loadedMiles = parseFloat(formData.loadedMiles) || 0;
-			const scaleCost = parseFloat(formData.scaleCost) || 0;
+	const {
+		calculatedGrossModal,
+		projectedNetModal,
+		totalMilesModal,
+		totalDeductionsModal,
+	} = useMemo(() => {
+		const linehaul = parseFloat(formData.linehaul) || 0;
+		const fsc = parseFloat(formData.fsc) || 0; // For percentage: total FSC
+		const fscPerLoadedMile = parseFloat(formData.fscPerLoadedMile) || 0; // For mileage
+		const deadheadMiles = parseFloat(formData.deadheadMiles) || 0;
+		const loadedMiles = parseFloat(formData.loadedMiles) || 0;
+		const scaleCost = parseFloat(formData.scaleCost) || 0;
+		const deductionCosts = parseFloat(formData.deductionCost) || 0;
 
-			const actualFuelCost = calculateTotalFuelCost(
-				formData.proNumber,
-				allFuelStops
-			);
-			const currentTotalMiles = deadheadMiles + loadedMiles;
+		const actualFuelCost = calculateTotalFuelCost(
+			formData.proNumber,
+			allFuelStops
+		);
+		const currentTotalMiles = deadheadMiles + loadedMiles;
+		console.log("[Load.jsx useMemo] formData:", JSON.stringify(formData));
+		console.log(
+			"[Load.jsx useMemo] userSettings:",
+			JSON.stringify(userSettings)
+		);
+		console.log(
+			"[Loads.jsx useMemo] deadheadMiles:",
+			deadheadMiles,
+			"loadedMiles:",
+			loadedMiles,
+			"currentTotalMiles:",
+			currentTotalMiles
+		);
 
-			let gross = 0;
+		let gross = 0;
 
-			if (userSettings?.driverPayType === "mileage") {
-				let mileageRate = 0;
-				if (currentTotalMiles > 0 && currentTotalMiles <= 200)
-					mileageRate = 2.0;
-				else if (currentTotalMiles >= 201 && currentTotalMiles <= 400)
-					mileageRate = 1.37;
-				else if (currentTotalMiles >= 401 && currentTotalMiles <= 600)
-					mileageRate = 1.13;
-				else if (currentTotalMiles >= 601) mileageRate = 1.02;
+		if (userSettings?.driverPayType === "mileage") {
+			let mileageRate = 0;
+			if (currentTotalMiles > 0 && currentTotalMiles <= 200) mileageRate = 2.0;
+			else if (currentTotalMiles >= 201 && currentTotalMiles <= 400)
+				mileageRate = 1.37;
+			else if (currentTotalMiles >= 401 && currentTotalMiles <= 600)
+				mileageRate = 1.13;
+			else if (currentTotalMiles >= 601) mileageRate = 1.02;
 
-				const mileageRevenue = currentTotalMiles * mileageRate;
-				const fscRevenue = loadedMiles * fscPerLoadedMile;
-				gross = mileageRevenue + fscRevenue;
-			} else {
-				// Default to percentage
-				const percentageRate = userSettings?.percentageRate || 0; // Default to 0 if not set
-				gross = linehaul * percentageRate + fsc;
-			}
+			const mileageRevenue = currentTotalMiles * mileageRate;
+			const fscRevenue = loadedMiles * fscPerLoadedMile;
+			gross = mileageRevenue + fscRevenue;
+		} else {
+			// Default to percentage
+			const percentageRate = userSettings?.percentageRate || 0; // Default to 0 if not set
+			gross = linehaul * percentageRate + fsc;
+		}
+		const fuelRoadUseTaxRate = parseFloat(userSettings?.fuelRoadUseTax) || 0;
+		const maintenanceReserveRate =
+			parseFloat(userSettings?.maintenanceReserve) || 0;
+		const bondDepositRate = parseFloat(userSettings?.bondDeposit) || 0;
+		const mrpFeeRate = parseFloat(userSettings?.mrpFee) || 0;
 
-			const net = gross - actualFuelCost - scaleCost;
-			return {
-				calculatedGrossModal: gross,
-				projectedNetModal: net,
-				totalMilesModal: currentTotalMiles,
-			};
-		}, [formData, userSettings, allFuelStops, formData.proNumber]);
+		const fuelRoadUseDeduction = currentTotalMiles * fuelRoadUseTaxRate;
+		const maintenanceReserveDeduction =
+			currentTotalMiles * maintenanceReserveRate;
+		const bondDepositDeduction = currentTotalMiles * bondDepositRate;
+		const mrpFeeDeduction = currentTotalMiles * mrpFeeRate;
+
+		const totalDeductions =
+			fuelRoadUseDeduction +
+			maintenanceReserveDeduction +
+			bondDepositDeduction +
+			mrpFeeDeduction;
+
+		const net = gross - totalDeductions - scaleCost - actualFuelCost;
+
+		return {
+			calculatedGrossModal: gross,
+			projectedNetModal: net,
+			totalMilesModal: currentTotalMiles,
+			totalDeductionsModal: totalDeductions,
+		};
+	}, [formData, userSettings, allFuelStops]);
 
 	const handleSubmitModal = async (e) => {
 		e.preventDefault();
@@ -255,7 +295,12 @@ function Loads() {
 			calculatedGross: calculatedGrossModal,
 			projectedNet: projectedNetModal,
 			scaleCost: parseFloat(formData.scaleCost) || 0,
+			calculatedDeductions: totalDeductionsModal,
 		};
+		console.log(
+			"[Loads.jsx handleSubmitModal] payload:",
+			JSON.stringify(payload)
+		);
 
 		if (
 			payload.id ||
@@ -408,6 +453,7 @@ function Loads() {
 									)}
 									<TableCell align="right">FSC / Rate</TableCell>
 									<TableCell align="right">Calculated Gross</TableCell>
+									<TableCell align="right">Deductions</TableCell>
 									<TableCell align="right">Fuel Cost</TableCell>
 									<TableCell align="right">Scale Cost</TableCell>
 									<TableCell align="right">Projected Net</TableCell>
@@ -468,6 +514,10 @@ function Loads() {
 										<TableCell align="right">
 											{`$${(load.calculatedGross || 0).toFixed(2)}`}
 										</TableCell>
+										<TableCell align="right">
+											{`$${(load.calculatedDeductions || 0).toFixed(2)}`}
+										</TableCell>
+
 										<TableCell align="right">
 											$
 											{calculateTotalFuelCost(
