@@ -389,9 +389,10 @@ function Loads() {
 		"WY",
 	];
 
-	const isEditing =
+	const isEditing = !!(
 		formData.proNumber &&
-		loadsForTable.some((l) => l.proNumber === formData.proNumber);
+		loadsForTable.some((l) => l.proNumber === formData.proNumber)
+	);
 
 	return (
 		<Box sx={{ flexGrow: 1 }}>
@@ -461,104 +462,155 @@ function Loads() {
 								</TableRow>
 							</TableHead>
 							<TableBody>
-								{sortedLoadsForTable.map((load) => (
-									<TableRow
-										key={load.proNumber}
-										sx={{ "&:last-child td, &:last-child th": { border: 0 } }}
-									>
-										<TableCell component="th" scope="row">
-											{load.proNumber}
-										</TableCell>
-										<TableCell>
-											{formatDateForDisplay(load.dateDispatched)}
-										</TableCell>
-										<TableCell>
-											{load.dateDelivered ? (
-												formatDateForDisplay(load.dateDelivered)
-											) : (
-												<Typography
-													color="text.secondary"
-													variant="caption"
-													sx={{ fontStyle: "italic" }}
-												>
-													In Transit
-												</Typography>
-											)}
-										</TableCell>
-										<TableCell>{load.trailerNumber || "N/A"}</TableCell>
-										<TableCell>{`${load.originCity || ""}, ${
-											load.originState || ""
-										}`}</TableCell>
-										<TableCell>{`${load.destinationCity || ""}, ${
-											load.destinationState || ""
-										}`}</TableCell>
-										<TableCell align="right">{load.deadheadMiles}</TableCell>
-										<TableCell align="right">{load.loadedMiles}</TableCell>
-										<TableCell align="right">{load.weight}</TableCell>
-										{userSettings?.driverPayType === "percentage" && (
-											<TableCell align="right">
-												{load.driverPayType === "percentage" &&
-												load.linehaul !== null
-													? `$${(load.linehaul || 0).toFixed(2)}`
-													: "N/A"}
-											</TableCell>
-										)}
-										<TableCell align="right">
-											{load.driverPayType === "percentage" && load.fsc !== null
-												? `$${(load.fsc || 0).toFixed(2)} (Total)`
-												: load.driverPayType === "mileage" &&
-												  load.fscPerLoadedMile !== null
-												? `$${(load.fscPerLoadedMile || 0).toFixed(2)}`
-												: "N/A"}
-										</TableCell>
-										<TableCell align="right">
-											{`$${(load.calculatedGross || 0).toFixed(2)}`}
-										</TableCell>
-										<TableCell align="right">
-											{`$${(load.calculatedDeductions || 0).toFixed(2)}`}
-										</TableCell>
+								{sortedLoadsForTable.map((load) =>
+									(() => {
+										// IIFE to allow calculations before returning JSX
+										// Calculate totalMiles for this specific load
+										const deadheadMiles = parseFloat(load.deadheadMiles) || 0;
+										const loadedMiles = parseFloat(load.loadedMiles) || 0;
+										const totalMilesForLoad = deadheadMiles + loadedMiles;
 
-										<TableCell align="right">
-											$
-											{calculateTotalFuelCost(
-												load.proNumber,
-												allFuelStops
-											).toFixed(2)}
-										</TableCell>
-										<TableCell align="right">
-											{`$${(load.scaleCost || 0).toFixed(2)}`}
-										</TableCell>
-										<TableCell align="right">
-											{`$${(load.projectedNet || 0).toFixed(2)}`}
-										</TableCell>
-										<TableCell align="center">
-											{!load.dateDelivered && (
-												<IconButton
-													onClick={() => handleCompleteLoad(load)}
-													color="success"
-													size="small"
-													title="Complete Load"
-												>
-													<CheckCircleOutlineIcon />
-												</IconButton>
-											)}
-											<IconButton
-												onClick={() => handleEditLoad(load)}
-												color="primary"
-												size="small"
+										// Get rates from userSettings
+										const fuelRoadUseTaxRate =
+											parseFloat(userSettings?.fuelRoadUseTax) || 0;
+										const maintenanceReserveRate =
+											parseFloat(userSettings?.maintenanceReserve) || 0;
+										const bondDepositRate =
+											parseFloat(userSettings?.bondDeposit) || 0;
+										const mrpFeeRate = parseFloat(userSettings?.mrpFee) || 0;
+
+										// Calculate individual deduction components for this load
+										const fuelRoadUseDeduction =
+											totalMilesForLoad * fuelRoadUseTaxRate;
+										const maintenanceReserveDeduction =
+											totalMilesForLoad * maintenanceReserveRate;
+										const bondDepositDeduction =
+											totalMilesForLoad * bondDepositRate;
+										const mrpFeeDeduction = totalMilesForLoad * mrpFeeRate;
+
+										// Calculate total deductions for this load
+										const calculatedTotalDeductionsForLoad =
+											fuelRoadUseDeduction +
+											maintenanceReserveDeduction +
+											bondDepositDeduction +
+											mrpFeeDeduction;
+
+										// Console log for verification as requested
+										console.log(
+											`[Loads Table Calculation] PRO: ${
+												load.proNumber
+											}, Calculated Total Deductions: $${calculatedTotalDeductionsForLoad.toFixed(
+												2
+											)}, Total Miles: ${totalMilesForLoad}`
+										);
+
+										return (
+											<TableRow
+												key={load.proNumber}
+												sx={{
+													"&:last-child td, &:last-child th": { border: 0 },
+												}}
 											>
-												<EditIcon />
-											</IconButton>
-											<IconButton
-												onClick={() => handleDelete(load.proNumber)}
-												color="error"
-												size="small"
-											>
-												<DeleteIcon />
-											</IconButton>
-										</TableCell>
-									</TableRow>
-								))}
+												<TableCell component="th" scope="row">
+													{load.proNumber}
+												</TableCell>
+												<TableCell>
+													{formatDateForDisplay(load.dateDispatched)}
+												</TableCell>
+												<TableCell>
+													{load.dateDelivered ? (
+														formatDateForDisplay(load.dateDelivered)
+													) : (
+														<Typography
+															color="text.secondary"
+															variant="caption"
+															sx={{ fontStyle: "italic" }}
+														>
+															In Transit
+														</Typography>
+													)}
+												</TableCell>
+												<TableCell>{load.trailerNumber || "N/A"}</TableCell>
+												<TableCell>{`${load.originCity || ""}, ${
+													load.originState || ""
+												}`}</TableCell>
+												<TableCell>{`${load.destinationCity || ""}, ${
+													load.destinationState || ""
+												}`}</TableCell>
+												<TableCell align="right">
+													{load.deadheadMiles}
+												</TableCell>
+												<TableCell align="right">{load.loadedMiles}</TableCell>
+												<TableCell align="right">{load.weight}</TableCell>
+												{userSettings?.driverPayType === "percentage" && (
+													<TableCell align="right">
+														{load.driverPayType === "percentage" &&
+														load.linehaul !== null
+															? `$${(load.linehaul || 0).toFixed(2)}`
+															: "N/A"}
+													</TableCell>
+												)}
+												<TableCell align="right">
+													{load.driverPayType === "percentage" &&
+													load.fsc !== null
+														? `$${(load.fsc || 0).toFixed(2)} (Total)`
+														: load.driverPayType === "mileage" &&
+														  load.fscPerLoadedMile !== null
+														? `$${(load.fscPerLoadedMile || 0).toFixed(2)}`
+														: "N/A"}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(load.calculatedGross || 0).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(calculatedTotalDeductionsForLoad || 0).toFixed(
+														2
+													)}`}
+												</TableCell>
+
+												<TableCell align="right">
+													$
+													{calculateTotalFuelCost(
+														load.proNumber,
+														allFuelStops
+													).toFixed(2)}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(load.scaleCost || 0).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(load.projectedNet || 0).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="center">
+													{!load.dateDelivered && (
+														<IconButton
+															onClick={() => handleCompleteLoad(load)}
+															color="success"
+															size="small"
+															title="Complete Load"
+														>
+															<CheckCircleOutlineIcon />
+														</IconButton>
+													)}
+													<IconButton
+														onClick={() => handleEditLoad(load)}
+														color="primary"
+														size="small"
+													>
+														<EditIcon />
+													</IconButton>
+													<IconButton
+														onClick={() => handleDelete(load.proNumber)}
+														color="error"
+														size="small"
+													>
+														<DeleteIcon />
+													</IconButton>
+												</TableCell>
+											</TableRow>
+										);
+									})()
+								)}
 							</TableBody>
 						</Table>
 					</TableContainer>
@@ -821,10 +873,11 @@ function Loads() {
 								<Grid item xs={12} sm={6} md={3}>
 									<TextField
 										label="Total Miles"
+										name="totalMiles"
 										value={totalMilesModal.toFixed(0)}
 										fullWidth
 										margin="dense"
-										disabled
+										disabled={true}
 									/>
 								</Grid>
 							</>
@@ -835,7 +888,7 @@ function Loads() {
 								value={calculatedGrossModal.toFixed(2)}
 								fullWidth
 								margin="dense"
-								disabled
+								disabled={true}
 								InputProps={{
 									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
 								}}
@@ -863,7 +916,7 @@ function Loads() {
 								value={projectedNetModal.toFixed(2)}
 								fullWidth
 								margin="dense"
-								disabled
+								disabled={true}
 								InputProps={{
 									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
 								}}
