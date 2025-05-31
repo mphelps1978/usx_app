@@ -48,7 +48,9 @@ async function startServer() {
         if (!password) return res.status(400).json({ message: 'Password is required' });
         const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
         const user = await User.create({ username, email, password: hashedPassword });
-        res.status(201).json({ message: 'User registered', userId: user.id });
+        // Generate a token for the new user to log them in immediately
+        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+        res.status(201).json({ message: 'User registered', userId: user.id, token: token });
       } catch (err) {
         console.error('[SERVER] Register error:', err);
         // Check for unique constraint violation (e.g., email already exists)
@@ -303,6 +305,8 @@ async function startServer() {
           pumpPriceDiesel,      // Expecting camelCase from frontend
           gallonsDefPurchased,  // Expecting camelCase from frontend (optional)
           pumpPriceDef,         // Expecting camelCase from frontend (optional)
+          fuelCardUsed,         // New boolean field
+          discountEligible,     // New boolean field
         } = req.body;
 
         // Validate required fields from the frontend payload
@@ -324,8 +328,9 @@ async function startServer() {
 
         const gdp = parseFloat(gallonsDieselPurchased);
         const ppd = parseFloat(pumpPriceDiesel);
-        // Assuming 5 cents discount per gallon for diesel - consider making this configurable
-        const costDieselPurchased = (ppd - 0.05) * gdp;
+        // Apply discount conditionally
+        const dieselDiscount = discountEligible ? 0.05 : 0;
+        const costDieselPurchased = (ppd - dieselDiscount) * gdp;
 
         let totalDefCost = 0;
         if (gallonsDefPurchased && pumpPriceDef) {
@@ -335,7 +340,11 @@ async function startServer() {
             totalDefCost = ppdef * gdefp;
           }
         }
-        const totalFuelStopCost = costDieselPurchased + totalDefCost;
+        let calculatedTotalFuelStopCost = costDieselPurchased + totalDefCost;
+        // Add service charge if fuel card was used
+        if (fuelCardUsed) {
+          calculatedTotalFuelStopCost += 1.00;
+        }
 
         // Map frontend payload and calculated values to the FuelStops model fields
         // Ensure your FuelStops model uses these camelCase field names
@@ -351,7 +360,9 @@ async function startServer() {
           gallonsDefPurchased: gallonsDefPurchased ? parseFloat(gallonsDefPurchased) : null,
           defPricePerGallon: pumpPriceDef ? parseFloat(pumpPriceDef) : null,
           totalDefCost: parseFloat(totalDefCost.toFixed(2)),
-          totalFuelStop: parseFloat(totalFuelStopCost.toFixed(2)),
+          totalFuelStop: parseFloat(calculatedTotalFuelStopCost.toFixed(2)),
+          fuelCardUsed: !!fuelCardUsed, // Ensure boolean
+          discountEligible: !!discountEligible, // Ensure boolean
         };
 
         // console.log('[SERVER] Attempting to create FuelStop with data:', fuelStopData);
@@ -404,6 +415,8 @@ async function startServer() {
           pumpPriceDiesel,      // Expecting camelCase
           gallonsDefPurchased,  // Expecting camelCase
           pumpPriceDef,         // Expecting camelCase
+          fuelCardUsed,         // New boolean field
+          discountEligible,     // New boolean field
         } = req.body;
 
         // Construct updateData carefully, only including fields that are present in req.body
@@ -420,7 +433,9 @@ async function startServer() {
         if (gallonsDieselPurchased !== undefined) updateData.gallonsDieselPurchased = gdpToUse;
         if (pumpPriceDiesel !== undefined) updateData.dieselPricePerGallon = ppdToUse;
 
-        const costDieselPurchased = (ppdToUse - 0.05) * gdpToUse; // Recalculate
+        const effectiveDiscountEligible = discountEligible !== undefined ? discountEligible : fuelStop.discountEligible;
+        const dieselDiscount = effectiveDiscountEligible ? 0.05 : 0;
+        const costDieselPurchased = (ppdToUse - dieselDiscount) * gdpToUse; // Recalculate with conditional discount
         updateData.totalDieselCost = parseFloat(costDieselPurchased.toFixed(2));
 
         let costDef = 0;
@@ -439,7 +454,15 @@ async function startServer() {
           costDef = ppdefToUse * gdefpToUse; // Recalculate
         }
         updateData.totalDefCost = parseFloat(costDef.toFixed(2));
-        updateData.totalFuelStop = parseFloat((costDieselPurchased + costDef).toFixed(2)); // Recalculate
+
+        let calculatedTotalFuelStopCost = costDieselPurchased + costDef;
+        const effectiveFuelCardUsed = fuelCardUsed !== undefined ? fuelCardUsed : fuelStop.fuelCardUsed;
+        if (effectiveFuelCardUsed) {
+          calculatedTotalFuelStopCost += 1.00;
+        }
+        updateData.totalFuelStop = parseFloat(calculatedTotalFuelStopCost.toFixed(2)); // Recalculate
+        if (fuelCardUsed !== undefined) updateData.fuelCardUsed = !!fuelCardUsed;
+        if (discountEligible !== undefined) updateData.discountEligible = !!discountEligible;
 
         await fuelStop.update(updateData);
         res.json(fuelStop);

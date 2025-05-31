@@ -1,0 +1,24 @@
+Changelog:
+
+0.0.03
+  - Added User Settings for Standard Deductions(MRP, IFTA, Bond, etc..) in Database
+  - Added User Settings for Standard Deductions to API (GET PUT)
+  - Added User Settings for Standard Deductions to User Settings Component.
+  
+0.0.04 - Active Version - NOT DEPLOYED
+  - Fixed some dependency mismatching causing render issues on the frontend
+  - Added logic to calculate total deductions on loads screen
+  - QOL Adjustments for FuelStop component
+  - Workflow Improvements to Dashboard
+    - Allow user to enter fuel stop for current active load
+  - Overall QOL Improvements to User Onboarding
+  - QOL Adjustments to Menu 
+  - Donation Link
+  - Move Changelog to separate file for revision notifications to user
+  
+0.0.1 BETA - In Progress
+  - First Iteration Public Beta Release
+  - Add error logging and reporting on backend
+  - Create Bug reporting feature
+  - Create Separation of Categories on Settings
+  - Refactor codebase for optimization

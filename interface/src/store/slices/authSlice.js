@@ -34,11 +34,13 @@ const authSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(register.fulfilled, (state, action) => {
-        // action.payload is now { message: '...', userId: '...' }
+        // action.payload is now { message: '...', userId: '...', token: '...' }
         state.userId = action.payload.userId;
+        state.token = action.payload.token; // Set the token
+        localStorage.setItem('authToken', action.payload.token); // Store token
+        axios.defaults.headers.common['Authorization'] = `Bearer ${action.payload.token}`; // Set auth header
         state.error = null;
-        // Note: Registration does not log the user in or set a token in this flow.
-        // The user will need to log in separately after successful registration.
+        // User is now logged in and token is set.
       })
       .addCase(register.rejected, (state, action) => {
         state.error = action.error.message;

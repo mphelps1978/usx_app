@@ -180,7 +180,6 @@ function Loads() {
 		const deadheadMiles = parseFloat(formData.deadheadMiles) || 0;
 		const loadedMiles = parseFloat(formData.loadedMiles) || 0;
 		const scaleCost = parseFloat(formData.scaleCost) || 0;
-		const deductionCosts = parseFloat(formData.deductionCost) || 0;
 
 		const actualFuelCost = calculateTotalFuelCost(
 			formData.proNumber,
@@ -495,6 +494,12 @@ function Loads() {
 											bondDepositDeduction +
 											mrpFeeDeduction;
 
+										// Calculate actual fuel cost for this specific load
+										const actualFuelCostForLoad = calculateTotalFuelCost(
+											load.proNumber,
+											allFuelStops
+										);
+
 										// Console log for verification as requested
 										console.log(
 											`[Loads Table Calculation] PRO: ${
@@ -503,6 +508,7 @@ function Loads() {
 												2
 											)}, Total Miles: ${totalMilesForLoad}`
 										);
+										// You can add a similar log for actualFuelCostForLoad if needed for debugging
 
 										return (
 											<TableRow
@@ -569,11 +575,7 @@ function Loads() {
 												</TableCell>
 
 												<TableCell align="right">
-													$
-													{calculateTotalFuelCost(
-														load.proNumber,
-														allFuelStops
-													).toFixed(2)}
+													{`$${(actualFuelCostForLoad || 0).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="right">
 													{`$${(load.scaleCost || 0).toFixed(2)}`}

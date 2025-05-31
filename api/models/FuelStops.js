@@ -6,14 +6,16 @@ module.exports = (sequelize) => {
     userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'Users', key: 'id' } },
     dateOfStop: { type: DataTypes.DATE, allowNull: false },
     vendor: { type: DataTypes.STRING, allowNull: false },
-    location: { type: DataTypes.STRING, allowNull: false },
-    gallonsDeiselPurchased: { type: DataTypes.FLOAT, allowNull: false },
-    DieselpricePerGallon: { type: DataTypes.FLOAT, allowNull: false },
+    location: { type: DataTypes.STRING, allowNull: false }, // Standard camelCase for consistency
+    gallonsDieselPurchased: { type: DataTypes.FLOAT, allowNull: true }, // Corrected typo and casing
+    dieselPricePerGallon: { type: DataTypes.FLOAT, allowNull: true }, // Corrected casing
     totalDieselCost: { type: DataTypes.FLOAT, allowNull: true },
-    gallonsDefPurchased: { type: DataTypes.FLOAT, allowNull: false },
-    DefpricePerGallon: { type: DataTypes.FLOAT, allowNull: false },
+    gallonsDefPurchased: { type: DataTypes.FLOAT, allowNull: true }, // Standard camelCase
+    defPricePerGallon: { type: DataTypes.FLOAT, allowNull: true }, // Corrected casing
     totalDefCost: { type: DataTypes.FLOAT, allowNull: true },
-    totalFuelStop: { type: DataTypes.FLOAT, allowNull: true }
+    totalFuelStop: { type: DataTypes.FLOAT, allowNull: true },
+    fuelCardUsed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    discountEligible: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
 
   }, {
     timestamps: true,

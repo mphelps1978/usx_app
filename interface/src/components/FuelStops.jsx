@@ -1,5 +1,6 @@
 import { React, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { useLocation, useNavigate } from "react-router-dom"; // Import useLocation and useNavigate
 import {
 	fetchFuelStops,
 	addFuelStop,
@@ -29,6 +30,8 @@ import {
 	FormControl,
 	InputLabel,
 	Grid,
+	Checkbox,
+	FormControlLabel,
 	CircularProgress,
 	Alert,
 	Tooltip, // Added for icon button titles
@@ -74,6 +77,8 @@ const formatDateForInput = (date) => {
 
 function FuelStops() {
 	const dispatch = useDispatch();
+	const location = useLocation(); // Get location object
+	const navigate = useNavigate(); // Get navigate function
 	const {
 		list: fuelStops,
 		loading,
@@ -81,6 +86,11 @@ function FuelStops() {
 	} = useSelector((state) => state.fuelStops);
 	const { list: loads } = useSelector((state) => state.loads);
 
+	const initialFormData = {
+		fuelCardUsed: false,
+		proNumber: "", // Ensure proNumber is part of initial state for the form
+		discountEligible: false, // Corrected typo here
+	};
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [formData, setFormData] = useState({});
 	const [isEditing, setIsEditing] = useState(false);
@@ -90,14 +100,36 @@ function FuelStops() {
 		dispatch(fetchLoads()); // Fetch loads for the PRO number dropdown
 	}, [dispatch]);
 
+	useEffect(() => {
+		// Check if we need to open the modal for a specific PRO number from dashboard
+		if (location.state?.openModalForPro) {
+			const proToPrefill = location.state.openModalForPro;
+			setIsEditing(false);
+			setFormData({
+				...initialFormData, // Start with initial defaults
+				proNumber: proToPrefill,
+				dateOfStop: formatDateForInput(new Date()), // Pre-fill the PRO number
+			});
+			setIsModalOpen(true);
+			// Clear the state from location to prevent re-opening on refresh/navigation
+			navigate(location.pathname, { replace: true, state: {} });
+		}
+	}, [location.state, navigate]); // Rerun if location.state changes
+
 	const handleInputChange = (e) => {
 		const { name, value } = e.target;
-		setFormData((prev) => ({ ...prev, [name]: value }));
+		const type = e.target.type; // Get type before potential setFormData
+
+		if (type === "checkbox") {
+			setFormData((prev) => ({ ...prev, [name]: e.target.checked }));
+		} else {
+			setFormData((prev) => ({ ...prev, [name]: value }));
+		}
 	};
 
 	const handleAddFuelStop = () => {
 		setIsEditing(false);
-		setFormData({}); // Clear form for new entry
+		setFormData(initialFormData); // Reset form with defaults
 		setIsModalOpen(true);
 	};
 
@@ -111,10 +143,12 @@ function FuelStops() {
 			dateOfStop: formatDateForInput(fuelStop.dateOfStop),
 			vendorName: fuelStop.vendor, // Map from 'vendor' (model) to 'vendorName' (form)
 			location: fuelStop.location,
-			gallonsDieselPurchased: fuelStop.gallonsDeiselPurchased, // Map from 'gallonsDeiselPurchased' (model)
-			pumpPriceDiesel: fuelStop.DieselpricePerGallon, // Map from 'DieselpricePerGallon' (model)
+			fuelCardUsed: fuelStop.fuelCardUsed || false, // Defaults to False if not present
+			discountEligible: fuelStop.discountEligible || false, // Ensure this matches corrected name
+			gallonsDieselPurchased: fuelStop.gallonsDieselPurchased, // Use corrected model field name
+			pumpPriceDiesel: fuelStop.dieselPricePerGallon, // Use corrected model field name
 			gallonsDefPurchased: fuelStop.gallonsDefPurchased, // Matches
-			pumpPriceDef: fuelStop.DefpricePerGallon, // Map from 'DefpricePerGallon' (model)
+			pumpPriceDef: fuelStop.defPricePerGallon, // Use corrected model field name
 			// Calculated fields are usually not set directly in formData for editing,
 			// but if they are displayed in the edit form (disabled), ensure keys match those displays
 			costDieselPurchased: fuelStop.totalDieselCost,
@@ -126,7 +160,7 @@ function FuelStops() {
 
 	const handleCloseModal = () => {
 		setIsModalOpen(false);
-		setFormData({});
+		setFormData(initialFormData); // Reset form data
 		setIsEditing(false);
 	};
 
@@ -147,6 +181,8 @@ function FuelStops() {
 			pumpPriceDef: formData.pumpPriceDef
 				? parseFloat(formData.pumpPriceDef)
 				: null,
+			fuelCardUsed: formData.fuelCardUsed || false,
+			discountEligible: formData.discountEligible || false,
 		};
 
 		if (isEditing) {
@@ -215,6 +251,8 @@ function FuelStops() {
 								<TableCell align="right">DEF Gal.</TableCell>
 								<TableCell align="right">DEF Price/Gal</TableCell>
 								<TableCell align="right">Total DEF Cost</TableCell>
+								<TableCell align="center">Card Used?</TableCell>
+								<TableCell align="center">Discounted?</TableCell>
 								<TableCell align="right">Total Stop Cost</TableCell>
 								<TableCell align="center">Actions</TableCell>
 							</TableRow>
@@ -232,39 +270,51 @@ function FuelStops() {
 									<TableCell>{fs.vendor}</TableCell>
 									<TableCell>{fs.location || "N/A"}</TableCell>
 									<TableCell align="right">
-										{/* Use model field name: gallonsDeiselPurchased */}
-										{fs.gallonsDeiselPurchased !== undefined &&
-										fs.gallonsDeiselPurchased !== null
-											? parseFloat(fs.gallonsDeiselPurchased).toFixed(2)
+										{/* Use corrected model field name: gallonsDieselPurchased. Show 0.00 if 0. */}
+										{fs.gallonsDieselPurchased !== undefined &&
+										fs.gallonsDieselPurchased !== null
+											? parseFloat(fs.gallonsDieselPurchased).toFixed(2)
+											: 0}
+									</TableCell>
+									<TableCell align="right">
+										{/* Use corrected model field name: dieselPricePerGallon. Show $0.000 if 0. */}
+										{fs.dieselPricePerGallon !== undefined &&
+										fs.dieselPricePerGallon !== null
+											? `$${parseFloat(fs.dieselPricePerGallon).toFixed(2)}`
 											: "N/A"}
 									</TableCell>
 									<TableCell align="right">
-										{/* Use model field name: DieselpricePerGallon */}
-										{fs.DieselpricePerGallon !== undefined &&
-										fs.DieselpricePerGallon !== null
-											? `$${parseFloat(fs.DieselpricePerGallon).toFixed(3)}`
-											: "N/A"}
+										{/* Calculated: fs.totalDieselCost. Defaults to $0.00 if null/undefined. */}
+										${(parseFloat(fs.totalDieselCost) || 0).toFixed(2)}
 									</TableCell>
 									<TableCell align="right">
-										${parseFloat(fs.totalDieselCost).toFixed(2)}
-									</TableCell>
-									<TableCell align="right">
-										{fs.gallonsDefPurchased
+										{/* fs.gallonsDefPurchased. Show 0.00 if 0. */}
+										{fs.gallonsDefPurchased !== undefined &&
+										fs.gallonsDefPurchased !== null
 											? parseFloat(fs.gallonsDefPurchased).toFixed(2)
+											: 0}
+									</TableCell>
+									<TableCell align="right">
+										{/* Use corrected model field name: defPricePerGallon. Show $0.000 if 0. */}
+										{fs.defPricePerGallon !== undefined &&
+										fs.defPricePerGallon !== null
+											? `$${parseFloat(fs.defPricePerGallon).toFixed(0)}`
 											: "N/A"}
 									</TableCell>
 									<TableCell align="right">
-										{fs.pumpPriceDef
-											? `$${parseFloat(fs.pumpPriceDef).toFixed(3)}`
-											: "N/A"}
+										{/* Calculated: fs.totalDefCost. Defaults to $0.00 if null/undefined. */}
+										{/* If totalDefCost can be 0 and should show $0.00, this is better: */}
+										${(parseFloat(fs.totalDefCost) || 0).toFixed(2)}
+									</TableCell>
+									<TableCell align="center">
+										{fs.fuelCardUsed ? "Yes" : "No"}
+									</TableCell>
+									<TableCell align="center">
+										{fs.discountEligible ? "Yes" : "No"}
 									</TableCell>
 									<TableCell align="right">
-										{fs.totalDefCost
-											? `$${parseFloat(fs.totalDefCost).toFixed(2)}`
-											: "N/A"}
-									</TableCell>
-									<TableCell align="right">
-										${parseFloat(fs.totalFuelStop).toFixed(2)}
+										{/* Calculated: fs.totalFuelStop. Defaults to $0.00 if null/undefined. */}
+										{(parseFloat(fs.totalFuelStop) || 0).toFixed(2)}
 									</TableCell>
 									<TableCell align="center">
 										<Tooltip title="Edit Fuel Stop">
@@ -418,6 +468,30 @@ function FuelStops() {
 								InputProps={{
 									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
 								}}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6}>
+							<FormControlLabel
+								control={
+									<Checkbox
+										checked={formData.fuelCardUsed || false}
+										onChange={handleInputChange}
+										name="fuelCardUsed"
+									/>
+								}
+								label="Fuel Card Used ($1.00 Service Charge)"
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6}>
+							<FormControlLabel
+								control={
+									<Checkbox
+										checked={formData.discountEligible || false} // Corrected typo here
+										onChange={handleInputChange}
+										name="discountEligible"
+									/>
+								}
+								label="USX Discount Applied (.05/gal)"
 							/>
 						</Grid>
 

@@ -84,7 +84,12 @@ const fuelStopsSlice = createSlice({
       })
       .addCase(addFuelStop.fulfilled, (state, action) => {
         state.loading = false;
+        // Log to see the incoming new fuel stop and the list before and after
+        console.log('[fuelStopsSlice] addFuelStop.fulfilled - PAYLOAD:', JSON.stringify(action.payload));
+        console.log('[fuelStopsSlice] addFuelStop.fulfilled - list BEFORE:', JSON.stringify(state.list));
         state.list.push(action.payload);
+        console.log('[fuelStopsSlice] addFuelStop.fulfilled - list AFTER:', JSON.stringify(state.list));
+        state.error = null; // Clear any previous error
       })
       .addCase(addFuelStop.rejected, (state, action) => {
         state.loading = false;
@@ -97,10 +102,14 @@ const fuelStopsSlice = createSlice({
       })
       .addCase(updateFuelStop.fulfilled, (state, action) => {
         state.loading = false;
+        console.log('[fuelStopsSlice] updateFuelStop.fulfilled - PAYLOAD:', JSON.stringify(action.payload));
         const index = state.list.findIndex((fs) => fs.id === action.payload.id);
+        console.log('[fuelStopsSlice] updateFuelStop.fulfilled - list BEFORE update (index ' + index + '):', JSON.stringify(state.list));
         if (index !== -1) {
           state.list[index] = action.payload;
+          console.log('[fuelStopsSlice] updateFuelStop.fulfilled - list AFTER update (index ' + index + '):', JSON.stringify(state.list));
         }
+        state.error = null; // Clear any previous error
       })
       .addCase(updateFuelStop.rejected, (state, action) => {
         state.loading = false;
@@ -113,7 +122,11 @@ const fuelStopsSlice = createSlice({
       })
       .addCase(deleteFuelStop.fulfilled, (state, action) => {
         state.loading = false;
+        console.log('[fuelStopsSlice] deleteFuelStop.fulfilled - PAYLOAD (ID to delete):', action.payload);
+        console.log('[fuelStopsSlice] deleteFuelStop.fulfilled - list BEFORE filter:', JSON.stringify(state.list));
         state.list = state.list.filter((fs) => fs.id !== action.payload);
+        console.log('[fuelStopsSlice] deleteFuelStop.fulfilled - list AFTER filter:', JSON.stringify(state.list));
+        state.error = null; // Clear any previous error
       })
       .addCase(deleteFuelStop.rejected, (state, action) => {
         state.loading = false;

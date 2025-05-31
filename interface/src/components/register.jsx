@@ -26,7 +26,8 @@ function Register() {
 		e.preventDefault();
 		const result = await dispatch(register({ username, email, password }));
 		if (register.fulfilled.match(result)) {
-			navigate("/login"); // Navigate to login after successful registration
+			// Navigate to settings page after successful registration and auto-login
+			navigate("/settings");
 		}
 	};
 

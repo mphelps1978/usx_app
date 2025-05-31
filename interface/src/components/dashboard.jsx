@@ -1,5 +1,6 @@
 import { React, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
+import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { fetchLoads } from "../store/slices/loadsSlice";
 import { Bar, Pie, Line } from "react-chartjs-2";
 import {
@@ -20,6 +21,7 @@ import {
 	Paper,
 	Typography,
 	Box,
+	Button, // Import Button
 	CircularProgress,
 	Alert,
 } from "@mui/material";
@@ -77,6 +79,7 @@ function getWeekEndingWednesday(year, weekNumber) {
 
 function Dashboard() {
 	const dispatch = useDispatch();
+	const navigate = useNavigate(); // Initialize useNavigate
 	const {
 		list: loads,
 		loading,
@@ -88,6 +91,14 @@ function Dashboard() {
 	useEffect(() => {
 		dispatch(fetchLoads());
 	}, [dispatch]);
+
+	const handleAddFuelStopForActiveLoad = () => {
+		if (activeLoad && activeLoad.proNumber) {
+			navigate("/fuel-stops", {
+				state: { openModalForPro: activeLoad.proNumber },
+			});
+		}
+	};
 
 	// Calculate total deadhead and loaded miles from actual loads data
 	const totalDeadheadMiles = loads.reduce(
@@ -323,6 +334,14 @@ function Dashboard() {
 					>
 						Status: In Transit
 					</Typography>
+					<Button
+						variant="outlined"
+						size="small"
+						onClick={handleAddFuelStopForActiveLoad}
+						sx={{ ml: 2 }} // Add some margin
+					>
+						Add Fuel Stop
+					</Button>
 				</Box>
 			)}
 

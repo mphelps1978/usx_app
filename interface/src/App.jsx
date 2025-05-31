@@ -29,6 +29,7 @@ import {
 	Menu,
 	MenuItem,
 	IconButton,
+	Tooltip, // Import Tooltip
 	ListItemIcon,
 	ListItemText,
 } from "@mui/material";
@@ -42,12 +43,18 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 import SettingsIcon from "@mui/icons-material/Settings";
+import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism"; // Icon for donation
+import { version } from "../package.json"; // Import version from package.json
 
 function App() {
 	const auth = useSelector((state) => state.auth || {});
 	const { token } = auth;
 	const dispatch = useDispatch();
 	const navigate = useNavigate();
+
+	// Placeholder for your PayPal donation link
+	const PAYPAL_DONATION_LINK =
+		"https://www.paypal.com/donate/?business=RBSRSCUEHL4CU&no_recurring=0&currency_code=USD";
 
 	// Fetch user settings when the authenticated app loads
 	useEffect(() => {
@@ -80,22 +87,87 @@ function App() {
 		navigate("/login");
 	};
 
+	const handleDonateClick = () => {
+		window.open(PAYPAL_DONATION_LINK, "_blank", "noopener,noreferrer");
+	};
+
 	const onTheRoadItems = [
-		{ text: "Loads", path: "/loads", icon: <LocalShippingIcon /> },
-		{ text: "Fuel Stops", path: "/fuel-stops", icon: <LocalGasStationIcon /> },
-		{ text: "Maintenance", path: "/maintenance", icon: <BuildIcon /> },
-		{ text: "Repairs", path: "/repairs", icon: <BuildIcon /> },
+		{
+			text: "Loads",
+			path: "/loads",
+			icon: <LocalShippingIcon />,
+			implemented: true,
+		},
+		{
+			text: "Fuel Stops",
+			path: "/fuel-stops",
+			icon: <LocalGasStationIcon />,
+			implemented: true,
+		},
+		{
+			text: "Maintenance",
+			path: "/maintenance",
+			icon: <BuildIcon />,
+			implemented: false,
+		},
+		{
+			text: "Repairs",
+			path: "/repairs",
+			icon: <BuildIcon />,
+			implemented: false,
+		},
 		{
 			text: "Other Expenses",
 			path: "/other-expenses",
 			icon: <AttachMoneyIcon />,
+			implemented: false,
 		},
 	];
 
 	const inTheOfficeItems = [
-		{ text: "Settlements", path: "/settlements", icon: <DescriptionIcon /> },
-		{ text: "Taxes", path: "/taxes", icon: <AccountBalanceIcon /> },
+		{
+			text: "Settlements",
+			path: "/settlements",
+			icon: <DescriptionIcon />,
+			implemented: false,
+		},
+		{
+			text: "Taxes",
+			path: "/taxes",
+			icon: <AccountBalanceIcon />,
+			implemented: false,
+		},
 	];
+
+	// Helper function to render menu items, with tooltip for non-implemented ones
+	const renderMenuItem = (item, setAnchorEl) => {
+		const menuItemContent = (
+			<MenuItem
+				key={item.text}
+				onClick={() =>
+					item.implemented ? handleNavigate(item.path, setAnchorEl) : null
+				}
+				disabled={!item.implemented} // Optionally disable non-implemented items
+			>
+				{item.icon && <ListItemIcon>{item.icon}</ListItemIcon>}
+				<ListItemText primary={item.text} />
+			</MenuItem>
+		);
+
+		if (!item.implemented) {
+			// For disabled items, wrap them in a span for the Tooltip to work
+			return (
+				<Tooltip title="Coming Soon" key={`${item.text}-tooltip`}>
+					{/* The span wrapper allows Tooltip to show on a disabled MenuItem */}
+					<span style={{ display: "block", width: "100%" }}>
+						{menuItemContent}
+					</span>
+				</Tooltip>
+			);
+		}
+
+		return menuItemContent;
+	};
 
 	if (!token) {
 		// Render routes for unauthenticated users
@@ -119,7 +191,7 @@ function App() {
 						component={RouterLink}
 						to="/dashboard"
 						sx={{
-							flexGrow: 1,
+							// flexGrow: 1, // Removed from here
 							color: "inherit",
 							textDecoration: "none",
 							mr: 2,
@@ -130,11 +202,24 @@ function App() {
 
 					<Button
 						color="inherit"
+						onClick={handleDonateClick}
+						startIcon={<VolunteerActivismIcon />}
+						sx={{ mr: 2 }} // Added margin to the right for spacing
+						aria-label="donate"
+					>
+						Support App
+					</Button>
+
+					<Button
+						color="inherit"
 						onClick={() => handleNavigate("/dashboard")}
 						startIcon={<DashboardIcon />}
 					>
 						Dashboard
 					</Button>
+
+					{/* This Box will now act as the spacer to push subsequent items to the right */}
+					<Box sx={{ flexGrow: 1 }} />
 
 					<Button
 						color="inherit"
@@ -147,15 +232,9 @@ function App() {
 						open={Boolean(anchorElOnTheRoad)}
 						onClose={() => handleMenuClose(setAnchorElOnTheRoad)}
 					>
-						{onTheRoadItems.map((item) => (
-							<MenuItem
-								key={item.text}
-								onClick={() => handleNavigate(item.path, setAnchorElOnTheRoad)}
-							>
-								{item.icon && <ListItemIcon>{item.icon}</ListItemIcon>}
-								<ListItemText primary={item.text} />
-							</MenuItem>
-						))}
+						{onTheRoadItems.map((item) =>
+							renderMenuItem(item, setAnchorElOnTheRoad)
+						)}
 					</Menu>
 
 					<Button
@@ -169,17 +248,9 @@ function App() {
 						open={Boolean(anchorElInTheOffice)}
 						onClose={() => handleMenuClose(setAnchorElInTheOffice)}
 					>
-						{inTheOfficeItems.map((item) => (
-							<MenuItem
-								key={item.text}
-								onClick={() =>
-									handleNavigate(item.path, setAnchorElInTheOffice)
-								}
-							>
-								{item.icon && <ListItemIcon>{item.icon}</ListItemIcon>}
-								<ListItemText primary={item.text} />
-							</MenuItem>
-						))}
+						{inTheOfficeItems.map((item) =>
+							renderMenuItem(item, setAnchorElInTheOffice)
+						)}
 					</Menu>
 
 					<Button
@@ -216,6 +287,25 @@ function App() {
 					<Route path="/" element={<Navigate to="/dashboard" />} />
 					<Route path="*" element={<Navigate to="/dashboard" />} />
 				</Routes>
+			</Box>
+
+			{/* Footer to display version number */}
+			<Box
+				component="footer"
+				sx={{
+					py: 1, // Padding top and bottom
+					px: 2, // Padding left and right
+					mt: "auto", // Pushes footer to the bottom if content is short
+					backgroundColor: (theme) =>
+						theme.palette.mode === "light"
+							? theme.palette.grey[200]
+							: theme.palette.grey[800],
+					textAlign: "center",
+				}}
+			>
+				<Typography variant="caption" color="textSecondary">
+					App Version: {version}
+				</Typography>
 			</Box>
 		</Box>
 	);
