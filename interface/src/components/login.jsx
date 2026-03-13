@@ -1,5 +1,5 @@
 // src/components/Login.jsx
-import { React, useState } from "react";
+import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { login } from "../store/slices/authSlice";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
@@ -73,7 +73,7 @@ function Login() {
 							required
 							fullWidth
 							id="email"
-							placeholder="Email Address"
+							label="Email Address"
 							name="email"
 							autoComplete="email"
 							autoFocus
@@ -85,7 +85,7 @@ function Login() {
 							required
 							fullWidth
 							name="password"
-							placeholder="Password"
+							label="Password"
 							type="password"
 							id="password"
 							autoComplete="current-password"

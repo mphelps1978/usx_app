@@ -14,6 +14,8 @@ module.exports = (sequelize) => {
     defPricePerGallon: { type: DataTypes.FLOAT, allowNull: true }, // Corrected casing
     totalDefCost: { type: DataTypes.FLOAT, allowNull: true },
     totalFuelStop: { type: DataTypes.FLOAT, allowNull: true },
+    settledDieselPricePerGallon: { type: DataTypes.FLOAT, allowNull: true }, // New field for settled price
+    settledTotalDieselCost: { type: DataTypes.FLOAT, allowNull: true }, // New field for settled total
     fuelCardUsed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     discountEligible: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
 

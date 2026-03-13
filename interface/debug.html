@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Debug Test</title>
+		<script>
+			// Test if React is loading
+			window.addEventListener("error", function (e) {
+				console.error("Global error:", e.error);
+				document.body.innerHTML +=
+					'<p style="color: red;">Error: ' + e.error + "</p>";
+			});
+
+			// Test if DOM is ready
+			document.addEventListener("DOMContentLoaded", function () {
+				console.log("DOM loaded");
+				document.body.innerHTML +=
+					'<p style="color: green;">DOM loaded successfully</p>';
+			});
+		</script>
+	</head>
+	<body>
+		<h1>Debug Test - Checking for JavaScript errors</h1>
+		<p>Check the browser console for any errors</p>
+	</body>
+</html>

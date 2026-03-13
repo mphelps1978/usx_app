@@ -38,6 +38,7 @@ import {
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
+import LocalGasStationIcon from "@mui/icons-material/LocalGasStation";
 
 // Helper to format date for display and for date inputs
 const formatDateForDisplay = (dateString) => {
@@ -94,6 +95,9 @@ function FuelStops() {
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [formData, setFormData] = useState({});
 	const [isEditing, setIsEditing] = useState(false);
+	const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
+	const [settleFormData, setSettleFormData] = useState({});
+	const [fuelStopToSettle, setFuelStopToSettle] = useState(null);
 
 	useEffect(() => {
 		dispatch(fetchFuelStops());
@@ -201,6 +205,61 @@ function FuelStops() {
 		}
 	};
 
+	const handleSettleFuelStop = (fuelStop) => {
+		setFuelStopToSettle(fuelStop);
+		setSettleFormData({
+			settledDieselPricePerGallon: fuelStop.settledDieselPricePerGallon || "",
+		});
+		setIsSettleModalOpen(true);
+	};
+
+	const handleCloseSettleModal = () => {
+		setIsSettleModalOpen(false);
+		setSettleFormData({});
+		setFuelStopToSettle(null);
+	};
+
+	const handleSubmitSettleModal = async (e) => {
+		e.preventDefault();
+		if (!fuelStopToSettle) return;
+
+		const settledPrice = parseFloat(settleFormData.settledDieselPricePerGallon);
+		if (isNaN(settledPrice) || settledPrice < 0) {
+			alert("Please enter a valid settled diesel price per gallon.");
+			return;
+		}
+
+		try {
+			// Call the settle endpoint
+			const response = await fetch(
+				`/api/fuelstops/${fuelStopToSettle.id}/settle`,
+				{
+					method: "PUT",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${localStorage.getItem("token")}`,
+					},
+					body: JSON.stringify({
+						settledDieselPricePerGallon: settledPrice,
+					}),
+				}
+			);
+
+			if (response.ok) {
+				// Refresh the fuel stops list
+				dispatch(fetchFuelStops());
+				handleCloseSettleModal();
+				alert("Fuel stop settled successfully!");
+			} else {
+				const error = await response.json();
+				alert(`Error settling fuel stop: ${error.message || "Unknown error"}`);
+			}
+		} catch (error) {
+			console.error("Error settling fuel stop:", error);
+			alert("Error settling fuel stop. Please try again.");
+		}
+	};
+
 	return (
 		<Box sx={{ flexGrow: 1 }}>
 			<Box
@@ -285,7 +344,11 @@ function FuelStops() {
 									</TableCell>
 									<TableCell align="right">
 										{/* Calculated: fs.totalDieselCost. Defaults to $0.00 if null/undefined. */}
-										${(parseFloat(fs.totalDieselCost) || 0).toFixed(2)}
+										$
+										{(
+											Math.round(parseFloat(fs.totalDieselCost) || 0 * 100) /
+											100
+										).toFixed(2)}
 									</TableCell>
 									<TableCell align="right">
 										{/* fs.gallonsDefPurchased. Show 0.00 if 0. */}
@@ -304,7 +367,10 @@ function FuelStops() {
 									<TableCell align="right">
 										{/* Calculated: fs.totalDefCost. Defaults to $0.00 if null/undefined. */}
 										{/* If totalDefCost can be 0 and should show $0.00, this is better: */}
-										${(parseFloat(fs.totalDefCost) || 0).toFixed(2)}
+										$
+										{(
+											Math.round(parseFloat(fs.totalDefCost) || 0 * 100) / 100
+										).toFixed(2)}
 									</TableCell>
 									<TableCell align="center">
 										{fs.fuelCardUsed ? "Yes" : "No"}
@@ -314,7 +380,9 @@ function FuelStops() {
 									</TableCell>
 									<TableCell align="right">
 										{/* Calculated: fs.totalFuelStop. Defaults to $0.00 if null/undefined. */}
-										{(parseFloat(fs.totalFuelStop) || 0).toFixed(2)}
+										{(
+											Math.round(parseFloat(fs.totalFuelStop) || 0 * 100) / 100
+										).toFixed(2)}
 									</TableCell>
 									<TableCell align="center">
 										<Tooltip title="Edit Fuel Stop">
@@ -324,6 +392,15 @@ function FuelStops() {
 												size="small"
 											>
 												<EditIcon />
+											</IconButton>
+										</Tooltip>
+										<Tooltip title="Settle Fuel Stop">
+											<IconButton
+												onClick={() => handleSettleFuelStop(fs)}
+												color="success"
+												size="small"
+											>
+												<LocalGasStationIcon />
 											</IconButton>
 										</Tooltip>
 										<Tooltip title="Delete Fuel Stop">
@@ -556,6 +633,101 @@ function FuelStops() {
 					</Button>
 					<Button type="submit" variant="contained" color="primary">
 						{isEditing ? "Update Fuel Stop" : "Save Fuel Stop"}
+					</Button>
+				</DialogActions>
+			</Dialog>
+
+			{/* Settlement Modal */}
+			<Dialog
+				open={isSettleModalOpen}
+				onClose={handleCloseSettleModal}
+				PaperProps={{ component: "form", onSubmit: handleSubmitSettleModal }}
+				maxWidth="sm"
+				fullWidth
+			>
+				<DialogTitle>Settle Fuel Stop</DialogTitle>
+				<DialogContent>
+					{fuelStopToSettle && (
+						<Box sx={{ mb: 2 }}>
+							<Typography variant="body2" color="text.secondary">
+								Load: {fuelStopToSettle.proNumber}
+							</Typography>
+							<Typography variant="body2" color="text.secondary">
+								Vendor: {fuelStopToSettle.vendor}
+							</Typography>
+							<Typography variant="body2" color="text.secondary">
+								Diesel Gallons: {fuelStopToSettle.gallonsDieselPurchased}
+							</Typography>
+							<Typography variant="body2" color="text.secondary">
+								Pump Price: ${fuelStopToSettle.dieselPricePerGallon}
+							</Typography>
+							<Typography variant="body2" color="text.secondary">
+								Total Diesel Cost: ${fuelStopToSettle.totalDieselCost}
+							</Typography>
+						</Box>
+					)}
+					<Grid container spacing={2}>
+						<Grid item xs={12}>
+							<TextField
+								label="Settled Diesel Price Per Gallon"
+								type="number"
+								name="settledDieselPricePerGallon"
+								value={settleFormData.settledDieselPricePerGallon || ""}
+								onChange={(e) =>
+									setSettleFormData({
+										...settleFormData,
+										settledDieselPricePerGallon: e.target.value,
+									})
+								}
+								fullWidth
+								required
+								margin="dense"
+								inputProps={{ step: "0.001" }}
+								InputProps={{
+									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
+								}}
+								helperText="Enter the actual settled price per gallon you were paid"
+							/>
+						</Grid>
+						{fuelStopToSettle && settleFormData.settledDieselPricePerGallon && (
+							<Grid item xs={12}>
+								<Box sx={{ p: 2, bgcolor: "grey.100", borderRadius: 1 }}>
+									<Typography variant="subtitle2">
+										Settlement Summary:
+									</Typography>
+									<Typography variant="body2">
+										Pump Price: ${fuelStopToSettle.dieselPricePerGallon} per
+										gallon
+									</Typography>
+									<Typography variant="body2">
+										Settled Price: ${settleFormData.settledDieselPricePerGallon}{" "}
+										per gallon
+									</Typography>
+									<Typography variant="body2">
+										Difference: $
+										{(
+											parseFloat(settleFormData.settledDieselPricePerGallon) -
+											parseFloat(fuelStopToSettle.dieselPricePerGallon)
+										).toFixed(3)}{" "}
+										per gallon
+									</Typography>
+									<Typography variant="body2">
+										Total Savings: $
+										{(parseFloat(settleFormData.settledDieselPricePerGallon) -
+											parseFloat(fuelStopToSettle.dieselPricePerGallon)) *
+											parseFloat(fuelStopToSettle.gallonsDieselPurchased)}
+									</Typography>
+								</Box>
+							</Grid>
+						)}
+					</Grid>
+				</DialogContent>
+				<DialogActions sx={{ p: "16px 24px" }}>
+					<Button onClick={handleCloseSettleModal} color="secondary">
+						Cancel
+					</Button>
+					<Button type="submit" variant="contained" color="primary">
+						Settle Fuel Stop
 					</Button>
 				</DialogActions>
 			</Dialog>

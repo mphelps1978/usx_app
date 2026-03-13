@@ -6,4 +6,13 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  server: {
+    port: 5173,
+    host: '0.0.0.0',
+    cors: true,
+    hmr: {
+      port: 5173,
+      overlay: false
+    }
+  }
 })

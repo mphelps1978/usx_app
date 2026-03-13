@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>React Login Simulation</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				margin: 20px;
+			}
+			.test-result {
+				margin: 10px 0;
+				padding: 10px;
+				border-radius: 4px;
+			}
+			.success {
+				background-color: #d4edda;
+				color: #155724;
+				border: 1px solid #c3e6cb;
+			}
+			.error {
+				background-color: #f8d7da;
+				color: #721c24;
+				border: 1px solid #f5c6cb;
+			}
+			.info {
+				background-color: #d1ecf1;
+				color: #0c5460;
+				border: 1px solid #bee5eb;
+			}
+			form {
+				margin: 20px 0;
+			}
+			input {
+				margin: 5px;
+				padding: 5px;
+			}
+		</style>
+		<script>
+			async function simulateReactLogin() {
+				const results = [];
+
+				// Simulate the exact login process from the React component
+				const email = "your-email@example.com"; // Use a real email if you have one
+				const password = "your-password"; // Use a real password if you have one
+
+				try {
+					console.log("Simulating React login process...");
+
+					// This mimics the exact fetch call from the React login thunk
+					const response = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							email: email,
+							password: password,
+						}),
+					});
+
+					console.log("Response status:", response.status);
+					console.log("Response headers:", response.headers);
+
+					// This mimics the response handling from the React thunk
+					if (response.ok) {
+						const data = await response.json();
+						console.log("Login successful:", data);
+						results.push({
+							test: "React Login Simulation",
+							status: response.status,
+							success: true,
+							details: "Login successful - token received",
+						});
+					} else {
+						const errorText = await response.text();
+						console.log("Login failed:", errorText);
+						results.push({
+							test: "React Login Simulation",
+							status: response.status,
+							success: false,
+							details: "Login failed: " + errorText,
+						});
+					}
+				} catch (error) {
+					console.error("React login simulation failed:", error);
+					results.push({
+						test: "React Login Simulation",
+						status: "ERROR",
+						success: false,
+						details: "Network error: " + error.message,
+					});
+				}
+
+				// Also test with invalid credentials to see the expected 401
+				try {
+					console.log("Testing with invalid credentials...");
+					const invalidResponse = await fetch(
+						"http://172.20.10.4:3001/api/login",
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								email: "invalid@example.com",
+								password: "wrongpassword",
+							}),
+						}
+					);
+
+					console.log(
+						"Invalid credentials response status:",
+						invalidResponse.status
+					);
+					const invalidErrorText = await invalidResponse.text();
+					console.log("Invalid credentials response:", invalidErrorText);
+
+					results.push({
+						test: "Invalid Credentials Test",
+						status: invalidResponse.status,
+						success: invalidResponse.status === 401,
+						details: "Expected 401 with invalid credentials",
+					});
+				} catch (error) {
+					console.error("Invalid credentials test failed:", error);
+					results.push({
+						test: "Invalid Credentials Test",
+						status: "ERROR",
+						success: false,
+						details: "Network error: " + error.message,
+					});
+				}
+
+				displayResults(results);
+			}
+
+			function displayResults(results) {
+				const container = document.getElementById("results");
+
+				results.forEach((result) => {
+					const div = document.createElement("div");
+					div.className = result.success
+						? "test-result success"
+						: "test-result error";
+					div.innerHTML = `
+                    <strong>${result.test}</strong><br>
+                    Status: ${result.status}<br>
+                    Details: ${result.details}
+                `;
+					container.appendChild(div);
+				});
+
+				// Add instructions for manual testing
+				const instructionsDiv = document.createElement("div");
+				instructionsDiv.className = "test-result info";
+				instructionsDiv.innerHTML = `
+                <strong>Manual Testing Instructions:</strong><br>
+                1. Open the actual login page: http://172.20.10.4:5173<br>
+                2. Open Chrome DevTools Console<br>
+                3. Try to log in with your real credentials<br>
+                4. Check the Console for any errors<br>
+                5. Check the Network tab for failed requests<br>
+                6. Look for any CORS errors or network timeouts
+            `;
+				container.appendChild(instructionsDiv);
+			}
+
+			// Run simulation when page loads
+			window.onload = simulateReactLogin;
+		</script>
+	</head>
+	<body>
+		<h1>React Login Simulation</h1>
+		<p>Simulating the exact login process from the React component...</p>
+		<div id="results"></div>
+	</body>
+</html>

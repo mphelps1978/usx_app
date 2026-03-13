@@ -21,4 +21,3 @@ Changelog:
   - Add error logging and reporting on backend
   - Create Bug reporting feature
   - Create Separation of Categories on Settings
-  - Refactor codebase for optimization

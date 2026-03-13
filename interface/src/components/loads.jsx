@@ -129,6 +129,66 @@ function Loads() {
 			.reduce((sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0), 0);
 	};
 
+	// Helper function to calculate fuel discount for a load
+	const calculateFuelDiscount = (proNumber, fuelStopsList) => {
+		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
+		return fuelStopsList
+			.filter((stop) => stop.proNumber === proNumber)
+			.reduce((sum, stop) => {
+				const gallons = parseFloat(stop.gallonsDieselPurchased) || 0;
+				const pumpPrice = parseFloat(stop.dieselPricePerGallon) || 0;
+				const settledPrice = parseFloat(stop.settledDieselPricePerGallon) || 0;
+
+				// If settled price exists, calculate discount
+				if (settledPrice > 0 && settledPrice < pumpPrice) {
+					const discountPerGallon = pumpPrice - settledPrice;
+					return sum + gallons * discountPerGallon;
+				}
+				return sum;
+			}, 0);
+	};
+
+	// Helper function to calculate net to truck for a load
+	const calculateNetToTruck = (load, fuelStopsList) => {
+		const actualFuelCost = calculateTotalFuelCost(
+			load.proNumber,
+			fuelStopsList
+		);
+		const fuelDiscount = calculateFuelDiscount(load.proNumber, fuelStopsList);
+		const scaleCost = parseFloat(load.scaleCost) || 0;
+		const calculatedGross = parseFloat(load.calculatedGross) || 0;
+
+		// Get individual deduction rates from userSettings
+		const totalMiles =
+			(parseFloat(load.deadheadMiles) || 0) +
+			(parseFloat(load.loadedMiles) || 0);
+		const fuelRoadUseTaxRate = parseFloat(userSettings?.fuelRoadUseTax) || 0;
+		const maintenanceReserveRate =
+			parseFloat(userSettings?.maintenanceReserve) || 0;
+		const bondDepositRate = parseFloat(userSettings?.bondDeposit) || 0;
+		const mrpFeeRate = parseFloat(userSettings?.mrpFee) || 0;
+
+		const fuelRoadUseDeduction = totalMiles * fuelRoadUseTaxRate;
+		const maintenanceReserveDeduction = totalMiles * maintenanceReserveRate;
+		const bondDepositDeduction = totalMiles * bondDepositRate;
+		const mrpFeeDeduction = totalMiles * mrpFeeRate;
+
+		const totalDeductions =
+			fuelRoadUseDeduction +
+			maintenanceReserveDeduction +
+			bondDepositDeduction +
+			mrpFeeDeduction;
+
+		// Net to Truck = Calculated Gross - Total Deductions - Actual Fuel Cost - Scale Cost + Fuel Discount
+		return (
+			calculatedGross -
+			totalDeductions -
+			actualFuelCost -
+			scaleCost +
+			fuelDiscount
+		);
+	};
+
 	// Sort loads: active load first, then by dateDelivered descending
 	const sortedLoadsForTable = [...loadsForTable].sort((a, b) => {
 		const aIsActive = !a.dateDelivered;
@@ -240,10 +300,10 @@ function Loads() {
 		const net = gross - totalDeductions - scaleCost - actualFuelCost;
 
 		return {
-			calculatedGrossModal: gross,
-			projectedNetModal: net,
+			calculatedGrossModal: Math.round(gross * 100) / 100,
+			projectedNetModal: Math.round(net * 100) / 100,
 			totalMilesModal: currentTotalMiles,
-			totalDeductionsModal: totalDeductions,
+			totalDeductionsModal: Math.round(totalDeductions * 100) / 100,
 		};
 	}, [formData, userSettings, allFuelStops]);
 
@@ -271,6 +331,19 @@ function Loads() {
 			return;
 		}
 
+		// Calculate individual deductions for database storage
+		const currentTotalMiles =
+			(parseFloat(formData.deadheadMiles) || 0) +
+			(parseFloat(formData.loadedMiles) || 0);
+		const fuelRoadUseDeduction =
+			currentTotalMiles * (parseFloat(userSettings?.fuelRoadUseTax) || 0);
+		const maintenanceReserveDeduction =
+			currentTotalMiles * (parseFloat(userSettings?.maintenanceReserve) || 0);
+		const bondDepositDeduction =
+			currentTotalMiles * (parseFloat(userSettings?.bondDeposit) || 0);
+		const mrpFeeDeduction =
+			currentTotalMiles * (parseFloat(userSettings?.mrpFee) || 0);
+
 		const payload = {
 			...formData,
 			dateDispatched: formData.dateDispatched || null,
@@ -295,6 +368,12 @@ function Loads() {
 			projectedNet: projectedNetModal,
 			scaleCost: parseFloat(formData.scaleCost) || 0,
 			calculatedDeductions: totalDeductionsModal,
+
+			// Add individual deduction fields for database storage
+			fuelRoadUseTax: fuelRoadUseDeduction,
+			maintenanceReserve: maintenanceReserveDeduction,
+			bondDeposit: bondDepositDeduction,
+			mrpFee: mrpFeeDeduction,
 		};
 		console.log(
 			"[Loads.jsx handleSubmitModal] payload:",
@@ -455,6 +534,8 @@ function Loads() {
 									<TableCell align="right">Calculated Gross</TableCell>
 									<TableCell align="right">Deductions</TableCell>
 									<TableCell align="right">Fuel Cost</TableCell>
+									<TableCell align="right">Fuel Discount</TableCell>
+									<TableCell align="right">Net to Truck</TableCell>
 									<TableCell align="right">Scale Cost</TableCell>
 									<TableCell align="right">Projected Net</TableCell>
 									<TableCell align="center">Actions</TableCell>
@@ -500,6 +581,18 @@ function Loads() {
 											allFuelStops
 										);
 
+										// Calculate fuel discount for this specific load
+										const fuelDiscountForLoad = calculateFuelDiscount(
+											load.proNumber,
+											allFuelStops
+										);
+
+										// Calculate net to truck for this specific load
+										const netToTruckForLoad = calculateNetToTruck(
+											load,
+											allFuelStops
+										);
+
 										// Console log for verification as requested
 										console.log(
 											`[Loads Table Calculation] PRO: ${
@@ -508,7 +601,13 @@ function Loads() {
 												2
 											)}, Total Miles: ${totalMilesForLoad}`
 										);
-										// You can add a similar log for actualFuelCostForLoad if needed for debugging
+										console.log(
+											`[Loads Table Calculation] PRO: ${
+												load.proNumber
+											}, Fuel Discount: $${fuelDiscountForLoad.toFixed(
+												2
+											)}, Net to Truck: $${netToTruckForLoad.toFixed(2)}`
+										);
 
 										return (
 											<TableRow
@@ -566,22 +665,42 @@ function Loads() {
 														: "N/A"}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(load.calculatedGross || 0).toFixed(2)}`}
+													{`$${(
+														Math.round(load.calculatedGross || 0 * 100) / 100
+													).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(calculatedTotalDeductionsForLoad || 0).toFixed(
-														2
-													)}`}
+													{`$${(
+														Math.round(
+															calculatedTotalDeductionsForLoad || 0 * 100
+														) / 100
+													).toFixed(2)}`}
 												</TableCell>
 
 												<TableCell align="right">
-													{`$${(actualFuelCostForLoad || 0).toFixed(2)}`}
+													{`$${(
+														Math.round(actualFuelCostForLoad || 0 * 100) / 100
+													).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(load.scaleCost || 0).toFixed(2)}`}
+													{`$${(
+														Math.round(fuelDiscountForLoad * 100) / 100
+													).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(load.projectedNet || 0).toFixed(2)}`}
+													{`$${(
+														Math.round(netToTruckForLoad * 100) / 100
+													).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(
+														Math.round(load.scaleCost || 0 * 100) / 100
+													).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="right">
+													{`$${(
+														Math.round(load.projectedNet || 0 * 100) / 100
+													).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="center">
 													{!load.dateDelivered && (

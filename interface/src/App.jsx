@@ -7,10 +7,10 @@ import {
 	useNavigate,
 } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
-import Login from "./components/Login";
-import Register from "./components/Register";
-import Dashboard from "./components/Dashboard";
-import Loads from "./components/Loads";
+import Login from "./components/login";
+import Register from "./components/register";
+import Dashboard from "./components/dashboard";
+import Loads from "./components/loads";
 import FuelStops from "./components/FuelStops";
 import Maintenance from "./components/Maintenance";
 import Repairs from "./components/Repairs";
@@ -29,9 +29,19 @@ import {
 	Menu,
 	MenuItem,
 	IconButton,
-	Tooltip, // Import Tooltip
+	Tooltip,
 	ListItemIcon,
 	ListItemText,
+	Link as MuiLink,
+	Drawer,
+	List,
+	ListItem,
+	ListItemButton,
+	ListItemText as ListItemTextMui,
+	Divider,
+	BottomNavigation,
+	BottomNavigationAction,
+	Container,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -43,43 +53,68 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 import SettingsIcon from "@mui/icons-material/Settings";
-import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism"; // Icon for donation
-import { version } from "../package.json"; // Import version from package.json
+import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism";
+import HomeIcon from "@mui/icons-material/Home";
+import { version } from "../package.json";
+import { logErrorToServer } from "./utils/errorLogger";
+import BugReportModal from "./components/BugReportModal";
 
 function App() {
 	const auth = useSelector((state) => state.auth || {});
-	const { token } = auth;
+	const { token, userId } = auth;
 	const dispatch = useDispatch();
 	const navigate = useNavigate();
 
-	// Placeholder for your PayPal donation link
 	const PAYPAL_DONATION_LINK =
 		"https://www.paypal.com/donate/?business=RBSRSCUEHL4CU&no_recurring=0&currency_code=USD";
+	const [isBugModalOpen, setIsBugModalOpen] = useState(false);
+	const [mobileOpen, setMobileOpen] = useState(false);
+	const [value, setValue] = useState(0);
 
 	// Fetch user settings when the authenticated app loads
 	useEffect(() => {
 		if (token) {
-			// Only fetch if authenticated
 			dispatch(fetchUserSettings());
 		}
 	}, [dispatch, token]);
 
-	const [anchorElOnTheRoad, setAnchorElOnTheRoad] = useState(null);
-	const [anchorElInTheOffice, setAnchorElInTheOffice] = useState(null);
+	// Setup global error handlers
+	useEffect(() => {
+		const originalOnError = window.onerror;
+		const originalOnUnhandledRejection = window.onunhandledrejection;
 
-	const handleMenuOpen = (event, setAnchorEl) => {
-		setAnchorEl(event.currentTarget);
-	};
+		window.onerror = (message, source, lineno, colno, error) => {
+			logErrorToServer(error || new Error(message), {
+				context: "global-onerror",
+				additionalInfo: { source, lineno, colno },
+			});
+			if (originalOnError) {
+				return originalOnError(message, source, lineno, colno, error);
+			}
+			return false;
+		};
 
-	const handleMenuClose = (setAnchorEl) => {
-		setAnchorEl(null);
-	};
+		window.onunhandledrejection = (event) => {
+			logErrorToServer(
+				event.reason || new Error("Unhandled promise rejection"),
+				{ context: "global-unhandledrejection" }
+			);
+			if (originalOnUnhandledRejection) {
+				return originalOnUnhandledRejection(event);
+			}
+		};
 
-	const handleNavigate = (path, setAnchorEl) => {
-		navigate(path);
-		if (setAnchorEl) {
-			handleMenuClose(setAnchorEl);
-		}
+		return () => {
+			window.onerror = originalOnError;
+			window.onunhandledrejection = originalOnUnhandledRejection;
+		};
+	}, []);
+
+	const handleOpenBugModal = () => setIsBugModalOpen(true);
+	const handleCloseBugModal = () => setIsBugModalOpen(false);
+
+	const handleDrawerToggle = () => {
+		setMobileOpen(!mobileOpen);
 	};
 
 	const handleLogout = () => {
@@ -91,86 +126,22 @@ function App() {
 		window.open(PAYPAL_DONATION_LINK, "_blank", "noopener,noreferrer");
 	};
 
-	const onTheRoadItems = [
-		{
-			text: "Loads",
-			path: "/loads",
-			icon: <LocalShippingIcon />,
-			implemented: true,
-		},
-		{
-			text: "Fuel Stops",
-			path: "/fuel-stops",
-			icon: <LocalGasStationIcon />,
-			implemented: true,
-		},
-		{
-			text: "Maintenance",
-			path: "/maintenance",
-			icon: <BuildIcon />,
-			implemented: false,
-		},
-		{
-			text: "Repairs",
-			path: "/repairs",
-			icon: <BuildIcon />,
-			implemented: false,
-		},
-		{
-			text: "Other Expenses",
-			path: "/other-expenses",
-			icon: <AttachMoneyIcon />,
-			implemented: false,
-		},
+	// Mobile navigation items
+	const mobileNavItems = [
+		{ text: "Dashboard", path: "/dashboard", icon: <DashboardIcon /> },
+		{ text: "Loads", path: "/loads", icon: <LocalShippingIcon /> },
+		{ text: "Fuel Stops", path: "/fuel-stops", icon: <LocalGasStationIcon /> },
+		{ text: "Settings", path: "/settings", icon: <SettingsIcon /> },
 	];
 
-	const inTheOfficeItems = [
-		{
-			text: "Settlements",
-			path: "/settlements",
-			icon: <DescriptionIcon />,
-			implemented: false,
-		},
-		{
-			text: "Taxes",
-			path: "/taxes",
-			icon: <AccountBalanceIcon />,
-			implemented: false,
-		},
+	// Bottom navigation for quick access
+	const bottomNavItems = [
+		{ label: "Home", icon: <HomeIcon />, path: "/dashboard" },
+		{ label: "Loads", icon: <LocalShippingIcon />, path: "/loads" },
+		{ label: "Fuel", icon: <LocalGasStationIcon />, path: "/fuel-stops" },
 	];
-
-	// Helper function to render menu items, with tooltip for non-implemented ones
-	const renderMenuItem = (item, setAnchorEl) => {
-		const menuItemContent = (
-			<MenuItem
-				key={item.text}
-				onClick={() =>
-					item.implemented ? handleNavigate(item.path, setAnchorEl) : null
-				}
-				disabled={!item.implemented} // Optionally disable non-implemented items
-			>
-				{item.icon && <ListItemIcon>{item.icon}</ListItemIcon>}
-				<ListItemText primary={item.text} />
-			</MenuItem>
-		);
-
-		if (!item.implemented) {
-			// For disabled items, wrap them in a span for the Tooltip to work
-			return (
-				<Tooltip title="Coming Soon" key={`${item.text}-tooltip`}>
-					{/* The span wrapper allows Tooltip to show on a disabled MenuItem */}
-					<span style={{ display: "block", width: "100%" }}>
-						{menuItemContent}
-					</span>
-				</Tooltip>
-			);
-		}
-
-		return menuItemContent;
-	};
 
 	if (!token) {
-		// Render routes for unauthenticated users
 		return (
 			<Routes>
 				<Route path="/login" element={<Login />} />
@@ -180,122 +151,140 @@ function App() {
 		);
 	}
 
-	// Render layout for authenticated users
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-			<AppBar position="static">
+			<AppBar
+				position="fixed"
+				sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
+			>
 				<Toolbar>
+					<IconButton
+						color="inherit"
+						aria-label="open drawer"
+						edge="start"
+						onClick={handleDrawerToggle}
+						sx={{ mr: 2, display: { sm: "none" } }}
+					>
+						<MenuIcon />
+					</IconButton>
 					<Typography
 						variant="h6"
 						noWrap
 						component={RouterLink}
 						to="/dashboard"
 						sx={{
-							// flexGrow: 1, // Removed from here
 							color: "inherit",
 							textDecoration: "none",
 							mr: 2,
+							fontSize: { xs: "1.1rem", sm: "1.25rem" },
 						}}
 					>
 						USX IC Books
 					</Typography>
-
+					<Box sx={{ flexGrow: 1 }} />
 					<Button
 						color="inherit"
 						onClick={handleDonateClick}
 						startIcon={<VolunteerActivismIcon />}
-						sx={{ mr: 2 }} // Added margin to the right for spacing
-						aria-label="donate"
+						sx={{ display: { xs: "none", sm: "inline-flex" } }}
 					>
 						Support App
 					</Button>
-
-					<Button
-						color="inherit"
-						onClick={() => handleNavigate("/dashboard")}
-						startIcon={<DashboardIcon />}
-					>
-						Dashboard
-					</Button>
-
-					{/* This Box will now act as the spacer to push subsequent items to the right */}
-					<Box sx={{ flexGrow: 1 }} />
-
-					<Button
-						color="inherit"
-						onClick={(e) => handleMenuOpen(e, setAnchorElOnTheRoad)}
-					>
-						On The Road
-					</Button>
-					<Menu
-						anchorEl={anchorElOnTheRoad}
-						open={Boolean(anchorElOnTheRoad)}
-						onClose={() => handleMenuClose(setAnchorElOnTheRoad)}
-					>
-						{onTheRoadItems.map((item) =>
-							renderMenuItem(item, setAnchorElOnTheRoad)
-						)}
-					</Menu>
-
-					<Button
-						color="inherit"
-						onClick={(e) => handleMenuOpen(e, setAnchorElInTheOffice)}
-					>
-						In The Office
-					</Button>
-					<Menu
-						anchorEl={anchorElInTheOffice}
-						open={Boolean(anchorElInTheOffice)}
-						onClose={() => handleMenuClose(setAnchorElInTheOffice)}
-					>
-						{inTheOfficeItems.map((item) =>
-							renderMenuItem(item, setAnchorElInTheOffice)
-						)}
-					</Menu>
-
-					<Button
-						color="inherit"
-						onClick={() => handleNavigate("/settings")}
-						startIcon={<SettingsIcon />}
-						sx={{ ml: 1 }}
-					>
-						Settings
-					</Button>
-
 					<Button
 						color="inherit"
 						onClick={handleLogout}
 						startIcon={<ExitToAppIcon />}
-						sx={{ ml: 2 }}
+						sx={{ ml: 1 }}
 					>
 						Logout
 					</Button>
 				</Toolbar>
 			</AppBar>
 
-			<Box component="main" sx={{ flexGrow: 1, p: 3, width: "100%" }}>
-				<Routes>
-					<Route path="/dashboard" element={<Dashboard />} />
-					<Route path="/loads" element={<Loads />} />
-					<Route path="/fuel-stops" element={<FuelStops />} />
-					<Route path="/maintenance" element={<Maintenance />} />
-					<Route path="/repairs" element={<Repairs />} />
-					<Route path="/other-expenses" element={<OtherExpenses />} />
-					<Route path="/settlements" element={<Settlements />} />
-					<Route path="/taxes" element={<Taxes />} />
-					<Route path="/settings" element={<Settings />} />
-					<Route path="/" element={<Navigate to="/dashboard" />} />
-					<Route path="*" element={<Navigate to="/dashboard" />} />
-				</Routes>
+			{/* Mobile Drawer */}
+			<Drawer
+				variant="temporary"
+				open={mobileOpen}
+				onClose={handleDrawerToggle}
+				sx={{
+					display: { xs: "block", sm: "none" },
+					"& .MuiDrawer-paper": { boxSizing: "border-box", width: 240 },
+				}}
+				ModalProps={{
+					keepMounted: true, // Better open performance on mobile.
+				}}
+			>
+				<Box onClick={handleDrawerToggle} sx={{ textAlign: "center", p: 2 }}>
+					<Typography variant="h6" sx={{ my: 2 }}>
+						Navigation
+					</Typography>
+					<Divider />
+					<List>
+						{mobileNavItems.map((item) => (
+							<ListItem key={item.text} disablePadding>
+								<ListItemButton
+									component={RouterLink}
+									to={item.path}
+									sx={{ minHeight: 48 }}
+								>
+									<ListItemIcon>{item.icon}</ListItemIcon>
+									<ListItemTextMui primary={item.text} />
+								</ListItemButton>
+							</ListItem>
+						))}
+					</List>
+				</Box>
+			</Drawer>
+
+			<Box
+				component="main"
+				sx={{ flexGrow: 1, p: { xs: 1, sm: 3 }, width: "100%" }}
+			>
+				<Container maxWidth="xl">
+					<Routes>
+						<Route path="/dashboard" element={<Dashboard />} />
+						<Route path="/loads" element={<Loads />} />
+						<Route path="/fuel-stops" element={<FuelStops />} />
+						<Route path="/maintenance" element={<Maintenance />} />
+						<Route path="/repairs" element={<Repairs />} />
+						<Route path="/other-expenses" element={<OtherExpenses />} />
+						<Route path="/settlements" element={<Settlements />} />
+						<Route path="/taxes" element={<Taxes />} />
+						<Route path="/settings" element={<Settings />} />
+						<Route path="/" element={<Navigate to="/dashboard" />} />
+						<Route path="*" element={<Navigate to="/dashboard" />} />
+					</Routes>
+				</Container>
 			</Box>
 
-			{/* Footer to display version number */}
+			{/* Bottom Navigation for Mobile */}
+			<Box sx={{ display: { xs: "block", sm: "none" } }}>
+				<BottomNavigation
+					showLabels
+					value={value}
+					onChange={(event, newValue) => {
+						setValue(newValue);
+						navigate(bottomNavItems[newValue].path);
+					}}
+					sx={{ position: "fixed", bottom: 0, width: "100%", zIndex: 1000 }}
+				>
+					{bottomNavItems.map((item) => (
+						<BottomNavigationAction
+							key={item.label}
+							label={item.label}
+							icon={item.icon}
+						/>
+					))}
+				</BottomNavigation>
+			</Box>
+
+			{/* Footer */}
 			<Box
 				component="footer"
 				sx={{
-					py: 1, // Padding top and bottom
-					px: 2, // Padding left and right
-					mt: "auto", // Pushes footer to the bottom if content is short
+					py: 1,
+					px: 2,
+					mt: "auto",
 					backgroundColor: (theme) =>
 						theme.palette.mode === "light"
 							? theme.palette.grey[200]
@@ -306,7 +295,23 @@ function App() {
 				<Typography variant="caption" color="textSecondary">
 					App Version: {version}
 				</Typography>
+				<Typography variant="caption" color="textSecondary" sx={{ mx: 0.5 }}>
+					|
+				</Typography>
+				<MuiLink
+					component="button"
+					variant="caption"
+					onClick={handleOpenBugModal}
+					sx={{
+						cursor: "pointer",
+						color: "text.secondary",
+						textDecoration: "underline",
+					}}
+				>
+					Report a Bug
+				</MuiLink>
 			</Box>
+			<BugReportModal open={isBugModalOpen} onClose={handleCloseBugModal} />
 		</Box>
 	);
 }

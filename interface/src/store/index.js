@@ -13,6 +13,9 @@ export const store = configureStore({
     fuelStops: fuelStopsReducer,
     userSettings: userSettingsReducer,
   },
+
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware(),
 })
 
 

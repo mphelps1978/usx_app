@@ -5,19 +5,26 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); // Import bcrypt
 // Import the promise from db.js which will resolve with models and sequelize
+const fs = require('fs'); // For file system logging (optional)
 const dbPromise = require('./db');
 const { Op } = require('sequelize'); // Sequelize Op can be required directly
 
 const app = express();
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://172.20.10.4:5173'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Custom-Header'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
+}));
 app.use(express.json());
 
 // Wrap the server setup and start logic in an async function
 async function startServer() {
   try {
     // Await the promise from db.js to get the initialized models and sequelize instance
-    const { User, Loads, FuelStops, UserSettings, sequelize } = await dbPromise;
+    const { User, Loads, FuelStops, UserSettings, BugReport, sequelize } = await dbPromise;
 
     // Now User, Loads, FuelStops, UserSettings, and sequelize are defined and ready to use.
     console.log('[SERVER] FuelStops model available after DB init:', !!FuelStops); // Should log true
@@ -203,6 +210,11 @@ async function startServer() {
           calculatedGross,
           projectedNet,
           scaleCost,
+          fuelRoadUseTax,
+          maintenanceReserve,
+          bondDeposit,
+          mrpFee,
+          calculatedDeductions,
           ...restOfBody
         } = req.body;
 
@@ -213,6 +225,13 @@ async function startServer() {
         if (calculatedGross !== undefined) updatedLoadData.calculatedGross = calculatedGross;
         if (projectedNet !== undefined) updatedLoadData.projectedNet = projectedNet;
         if (scaleCost !== undefined) updatedLoadData.scaleCost = scaleCost;
+
+        // Add individual deduction fields if provided
+        if (fuelRoadUseTax !== undefined) updatedLoadData.fuelRoadUseTax = fuelRoadUseTax;
+        if (maintenanceReserve !== undefined) updatedLoadData.maintenanceReserve = maintenanceReserve;
+        if (bondDeposit !== undefined) updatedLoadData.bondDeposit = bondDeposit;
+        if (mrpFee !== undefined) updatedLoadData.mrpFee = mrpFee;
+        if (calculatedDeductions !== undefined) updatedLoadData.totalDeductions = calculatedDeductions;
 
         if (req.body.hasOwnProperty('dateDelivered')) { // Check if dateDelivered was intentionally sent
           updatedLoadData.dateDelivered = req.body.dateDelivered &&
@@ -363,6 +382,8 @@ async function startServer() {
           totalFuelStop: parseFloat(calculatedTotalFuelStopCost.toFixed(2)),
           fuelCardUsed: !!fuelCardUsed, // Ensure boolean
           discountEligible: !!discountEligible, // Ensure boolean
+          settledDieselPricePerGallon: null, // Initialize as null for new fuel stops
+          settledTotalDieselCost: null, // Initialize as null for new fuel stops
         };
 
         // console.log('[SERVER] Attempting to create FuelStop with data:', fuelStopData);
@@ -493,6 +514,42 @@ async function startServer() {
       }
     });
 
+    // Settle Fuel Stop (Update settled diesel price and recalculate settled total)
+    app.put('/api/fuelstops/:id/settle', authenticate, async (req, res) => {
+      try {
+        const fuelStopId = req.params.id;
+        const { settledDieselPricePerGallon } = req.body;
+
+        if (settledDieselPricePerGallon === undefined) {
+          return res.status(400).json({ message: 'settledDieselPricePerGallon is required' });
+        }
+
+        const settledPrice = parseFloat(settledDieselPricePerGallon);
+        if (isNaN(settledPrice) || settledPrice < 0) {
+          return res.status(400).json({ message: 'Invalid settledDieselPricePerGallon. Must be a non-negative number.' });
+        }
+
+        const fuelStop = await FuelStops.findOne({ where: { id: fuelStopId, userId: req.userId } });
+
+        if (!fuelStop) {
+          return res.status(404).json({ message: 'Fuel stop not found or access denied' });
+        }
+
+        // Calculate settled total based on gallons purchased and settled price
+        const settledTotalDieselCost = fuelStop.gallonsDieselPurchased * settledPrice;
+
+        await fuelStop.update({
+          settledDieselPricePerGallon: settledPrice,
+          settledTotalDieselCost: parseFloat(settledTotalDieselCost.toFixed(2))
+        });
+
+        res.json(fuelStop);
+      } catch (err) {
+        console.error('[SERVER] Error settling fuel stop:', err);
+        res.status(500).json({ message: 'Server error settling fuel stop' });
+      }
+    });
+
     // --- User Settings Routes ---
     // GET current user's settings
     app.get('/api/users/settings', authenticate, async (req, res) => {
@@ -587,6 +644,83 @@ async function startServer() {
           return res.status(400).json({ message: err.errors.map(e => e.message).join(', ') });
         }
         res.status(500).json({ message: 'Error updating user settings' });
+      }
+    });
+
+    // --- Bug Reporting Endpoint ---
+    app.post('/api/report-bug', authenticate, async (req, res) => { // `authenticate` to get userId
+      try {
+        const {
+          description,
+          stepsToReproduce,
+          contactEmail,
+          url,
+          userAgent,
+          appVersion
+        } = req.body;
+
+        if (!description || !stepsToReproduce) {
+          return res.status(400).json({ message: 'Description and steps to reproduce are required.' });
+        }
+
+        const userId = req.userId || 'anonymous'; // Get userId from token if available
+        const report = {
+          userId,
+          timestamp: new Date().toISOString(),
+          description,
+          stepsToReproduce,
+          contactEmail: contactEmail || 'Not provided',
+          url,
+          userAgent,
+          appVersion,
+        };
+
+        // Save to database using the BugReport model
+        const newBugReport = await BugReport.create({
+          userId: userId === 'anonymous' ? null : userId, // Store null if anonymous
+          description,
+          stepsToReproduce,
+          contactEmail: contactEmail || null,
+          url,
+          userAgent,
+          appVersion,
+          status: 'new', // Default status
+          // timestamp (createdAt) is handled by Sequelize
+        });
+
+        console.log('[BUG-REPORT] New bug report saved to DB. ID:', newBugReport.id);
+
+        // Optional: Still log to console or file if desired for immediate visibility
+        // console.log('[BUG-REPORT] Details:', JSON.stringify(newBugReport.toJSON(), null, 2));
+
+        // Respond to the client
+        res.status(200).json({ message: 'Bug report submitted successfully.' });
+      } catch (err) {
+        console.error('[SERVER] Error in /api/report-bug endpoint:', err);
+        res.status(500).json({ message: 'Failed to submit bug report on server.' });
+      }
+    });
+
+    // --- Client-Side Error Logging Endpoint ---
+    app.post('/api/client-log', authenticate, async (req, res) => { // `authenticate` makes it user-specific
+      try {
+        const errorDetails = req.body;
+        const userId = req.userId || 'anonymous'; // Get userId from token if available
+
+        // Log to console (basic)
+        console.error(`[CLIENT-ERROR] UserID: ${userId}, Timestamp: ${new Date().toISOString()}`, errorDetails);
+
+        // Optional: Log to a file (more persistent)
+        // const logEntry = `Timestamp: ${new Date().toISOString()}, UserID: ${userId}, Error: ${JSON.stringify(errorDetails, null, 2)}\n---\n`;
+        // fs.appendFile('client_errors.log', logEntry, (err) => {
+        //   if (err) console.error('[SERVER] Failed to write to client_errors.log:', err);
+        // });
+
+        res.status(200).json({ message: 'Error logged successfully' });
+      } catch (err) {
+        // This catch is for errors in the logging endpoint itself
+        console.error('[SERVER] Error in /api/client-log endpoint:', err);
+        res.status(500).json({ message: 'Failed to log error on server' });
       }
     });
 

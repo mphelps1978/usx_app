@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Clear Cache</title>
+		<script>
+			// Unregister service worker and clear cache
+			if ("serviceWorker" in navigator) {
+				navigator.serviceWorker
+					.getRegistrations()
+					.then(function (registrations) {
+						for (let registration of registrations) {
+							registration.unregister();
+						}
+					});
+			}
+
+			// Clear cache
+			if ("caches" in window) {
+				caches.keys().then(function (cacheNames) {
+					return Promise.all(
+						cacheNames.map(function (cacheName) {
+							return caches.delete(cacheName);
+						})
+					);
+				});
+			}
+
+			// Redirect to main app
+			setTimeout(function () {
+				window.location.href = "/";
+			}, 1000);
+		</script>
+	</head>
+	<body>
+		<h1>Clearing cache and service worker...</h1>
+		<p>Redirecting to main app in 1 second...</p>
+	</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Inspect Headers</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				margin: 20px;
+			}
+			.test-result {
+				margin: 10px 0;
+				padding: 10px;
+				border-radius: 4px;
+			}
+			.success {
+				background-color: #d4edda;
+				color: #155724;
+				border: 1px solid #c3e6cb;
+			}
+			.error {
+				background-color: #f8d7da;
+				color: #721c24;
+				border: 1px solid #f5c6cb;
+			}
+			.info {
+				background-color: #d1ecf1;
+				color: #0c5460;
+				border: 1px solid #bee5eb;
+			}
+			pre {
+				background-color: #f8f9fa;
+				padding: 10px;
+				border-radius: 4px;
+				overflow-x: auto;
+			}
+		</style>
+		<script>
+			async function inspectHeaders() {
+				const results = [];
+
+				// Test 1: Check what headers are actually sent by the browser
+				try {
+					console.log("=== Testing actual headers sent ===");
+
+					// This will trigger a preflight and show us what headers are sent
+					const response = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer test-token", // This might trigger different CORS behavior
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+					});
+
+					console.log("Test 1 - Status:", response.status);
+					console.log(
+						"Test 1 - Response headers:",
+						Object.fromEntries(response.headers.entries())
+					);
+
+					const text = await response.text();
+					console.log("Test 1 - Response text:", text);
+
+					results.push({
+						test: "Headers with Authorization",
+						status: response.status,
+						success: response.status === 401,
+						details: "Status: " + response.status + ", Response: " + text,
+					});
+				} catch (error) {
+					console.error("Test 1 failed:", error);
+					results.push({
+						test: "Headers with Authorization",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				// Test 2: Check what happens with no Authorization header
+				try {
+					console.log("=== Testing without Authorization header ===");
+
+					const response2 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							// No Authorization header
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+					});
+
+					console.log("Test 2 - Status:", response2.status);
+					const text2 = await response2.text();
+					console.log("Test 2 - Response text:", text2);
+
+					results.push({
+						test: "Headers without Authorization",
+						status: response2.status,
+						success: response2.status === 401,
+						details: "Status: " + response2.status + ", Response: " + text2,
+					});
+				} catch (error) {
+					console.error("Test 2 failed:", error);
+					results.push({
+						test: "Headers without Authorization",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				// Test 3: Check what happens with custom headers
+				try {
+					console.log("=== Testing with custom headers ===");
+
+					const response3 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"X-Custom-Header": "test-value", // Custom header that might trigger CORS
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+					});
+
+					console.log("Test 3 - Status:", response3.status);
+					const text3 = await response3.text();
+					console.log("Test 3 - Response text:", text3);
+
+					results.push({
+						test: "Headers with custom header",
+						status: response3.status,
+						success: response3.status === 401,
+						details: "Status: " + response3.status + ", Response: " + text3,
+					});
+				} catch (error) {
+					console.error("Test 3 failed:", error);
+					results.push({
+						test: "Headers with custom header",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				displayResults(results);
+			}
+
+			function displayResults(results) {
+				const container = document.getElementById("results");
+
+				results.forEach((result) => {
+					const div = document.createElement("div");
+					div.className = result.success
+						? "test-result success"
+						: "test-result error";
+					div.innerHTML = `
+                    <strong>${result.test}</strong><br>
+                    Status: ${result.status}<br>
+                    Details: ${result.details}
+                `;
+					container.appendChild(div);
+				});
+
+				// Add instructions
+				const instructionsDiv = document.createElement("div");
+				instructionsDiv.className = "test-result info";
+				instructionsDiv.innerHTML = `
+                <strong>Next Steps:</strong><br>
+                1. Check the browser console for detailed header information<br>
+                2. Try the actual React login page again: http://172.20.10.4:5173<br>
+                3. Open Chrome DevTools Network tab<br>
+                4. Look at the failed login request and check:<br>
+                   - Request headers being sent<br>
+                   - Response headers received<br>
+                   - Any CORS-related error messages<br>
+                5. Take a screenshot of the Network tab for the failed request
+            `;
+				container.appendChild(instructionsDiv);
+			}
+
+			// Run tests when page loads
+			window.onload = inspectHeaders;
+		</script>
+	</head>
+	<body>
+		<h1>Inspect Headers</h1>
+		<p>Testing different header configurations to identify CORS issues...</p>
+		<div id="results"></div>
+		<div>
+			<h3>Console Logs:</h3>
+			<pre id="console-output">Check browser console for detailed logs...</pre>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Detailed React Debug</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				margin: 20px;
+			}
+			.test-result {
+				margin: 10px 0;
+				padding: 10px;
+				border-radius: 4px;
+			}
+			.success {
+				background-color: #d4edda;
+				color: #155724;
+				border: 1px solid #c3e6cb;
+			}
+			.error {
+				background-color: #f8d7da;
+				color: #721c24;
+				border: 1px solid #f5c6cb;
+			}
+			.info {
+				background-color: #d1ecf1;
+				color: #0c5460;
+				border: 1px solid #bee5eb;
+			}
+			pre {
+				background-color: #f8f9fa;
+				padding: 10px;
+				border-radius: 4px;
+				overflow-x: auto;
+			}
+		</style>
+		<script>
+			async function detailedReactDebug() {
+				const results = [];
+
+				// Test 1: Basic fetch with credentials
+				try {
+					console.log("=== Test 1: Basic fetch with credentials ===");
+					const response1 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+						credentials: "same-origin", // This is what React might be using
+					});
+
+					console.log("Test 1 - Status:", response1.status);
+					console.log(
+						"Test 1 - Headers:",
+						Object.fromEntries(response1.headers.entries())
+					);
+
+					const text1 = await response1.text();
+					console.log("Test 1 - Response text:", text1);
+
+					results.push({
+						test: "Basic fetch with credentials",
+						status: response1.status,
+						success: response1.status === 401,
+						details: "Status: " + response1.status + ", Response: " + text1,
+					});
+				} catch (error) {
+					console.error("Test 1 failed:", error);
+					results.push({
+						test: "Basic fetch with credentials",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				// Test 2: Fetch without credentials
+				try {
+					console.log("=== Test 2: Fetch without credentials ===");
+					const response2 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+						credentials: "omit", // This is what we've been using
+					});
+
+					console.log("Test 2 - Status:", response2.status);
+					const text2 = await response2.text();
+					console.log("Test 2 - Response text:", text2);
+
+					results.push({
+						test: "Fetch without credentials",
+						status: response2.status,
+						success: response2.status === 401,
+						details: "Status: " + response2.status + ", Response: " + text2,
+					});
+				} catch (error) {
+					console.error("Test 2 failed:", error);
+					results.push({
+						test: "Fetch without credentials",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				// Test 3: Check if there are any CORS preflight issues
+				try {
+					console.log("=== Test 3: CORS preflight check ===");
+					const response3 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "OPTIONS",
+						headers: {
+							"Access-Control-Request-Method": "POST",
+							"Access-Control-Request-Headers": "Content-Type",
+							Origin: "http://172.20.10.4:5173",
+						},
+					});
+
+					console.log("Test 3 - Status:", response3.status);
+					console.log(
+						"Test 3 - Headers:",
+						Object.fromEntries(response3.headers.entries())
+					);
+
+					results.push({
+						test: "CORS preflight check",
+						status: response3.status,
+						success: response3.status < 400,
+						details: "CORS preflight status: " + response3.status,
+					});
+				} catch (error) {
+					console.error("Test 3 failed:", error);
+					results.push({
+						test: "CORS preflight check",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				// Test 4: Check network timing and connection
+				try {
+					console.log("=== Test 4: Network timing test ===");
+					const startTime = performance.now();
+					const response4 = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+					});
+					const endTime = performance.now();
+					const duration = endTime - startTime;
+
+					console.log("Test 4 - Duration:", duration + "ms");
+					console.log("Test 4 - Status:", response4.status);
+
+					results.push({
+						test: "Network timing test",
+						status: response4.status,
+						success: response4.status === 401,
+						details: "Request took " + duration.toFixed(2) + "ms",
+					});
+				} catch (error) {
+					console.error("Test 4 failed:", error);
+					results.push({
+						test: "Network timing test",
+						status: "ERROR",
+						success: false,
+						details: "Error: " + error.message,
+					});
+				}
+
+				displayResults(results);
+			}
+
+			function displayResults(results) {
+				const container = document.getElementById("results");
+
+				results.forEach((result) => {
+					const div = document.createElement("div");
+					div.className = result.success
+						? "test-result success"
+						: "test-result error";
+					div.innerHTML = `
+                    <strong>${result.test}</strong><br>
+                    Status: ${result.status}<br>
+                    Details: ${result.details}
+                `;
+					container.appendChild(div);
+				});
+
+				// Add final instructions
+				const instructionsDiv = document.createElement("div");
+				instructionsDiv.className = "test-result info";
+				instructionsDiv.innerHTML = `
+                <strong>Final Debugging Steps:</strong><br>
+                1. The simulation tests above should all show 401 status (expected)<br>
+                2. If any show "ERROR", that indicates a network issue<br>
+                3. Now try the actual React login page: http://172.20.10.4:5173<br>
+                4. Open Chrome DevTools Console and Network tabs<br>
+                5. Try to log in and look for:<br>
+                   - Any CORS errors in Console<br>
+                   - Failed requests in Network tab<br>
+                   - Any JavaScript errors<br>
+                6. Take a screenshot of any errors you see
+            `;
+				container.appendChild(instructionsDiv);
+
+				// Add console log summary
+				const consoleDiv = document.createElement("div");
+				consoleDiv.className = "test-result info";
+				consoleDiv.innerHTML = `
+                <strong>Console Log Summary:</strong><br>
+                Check the browser console for detailed logs from each test above.<br>
+                Look for any "Test X failed:" messages which indicate specific issues.
+            `;
+				container.appendChild(consoleDiv);
+			}
+
+			// Run tests when page loads
+			window.onload = detailedReactDebug;
+		</script>
+	</head>
+	<body>
+		<h1>Detailed React Debug</h1>
+		<p>
+			Running detailed tests to identify the exact issue with React login...
+		</p>
+		<div id="results"></div>
+		<div>
+			<h3>Console Logs:</h3>
+			<pre id="console-output">Check browser console for detailed logs...</pre>
+		</div>
+	</body>
+</html>

@@ -11,7 +11,7 @@ export const register = createAsyncThunk('auth/register', async ({ username, ema
 
 export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
   const response = await axios.post(`${apiurl}/login`, { email, password });
-  return response.data.token;
+  return response.data; // Return the full response data
 });
 
 const authSlice = createSlice({
@@ -46,10 +46,11 @@ const authSlice = createSlice({
         state.error = action.error.message;
       })
       .addCase(login.fulfilled, (state, action) => {
-        // action.payload here is the token string, because the login thunk returns response.data.token
-        state.token = action.payload;
-        localStorage.setItem('authToken', action.payload);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${action.payload}`;
+        // action.payload is now the full response data { token: '...', userId: '...' }
+        state.token = action.payload.token;
+        state.userId = action.payload.userId;
+        localStorage.setItem('authToken', action.payload.token);
+        axios.defaults.headers.common['Authorization'] = `Bearer ${action.payload.token}`;
         state.error = null; // Clear any previous login errors
       })
       .addCase(login.rejected, (state, action) => {

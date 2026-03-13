@@ -1,42 +1,305 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* Mobile-First Responsive Design */
+
+/* Base styles for all devices */
+.App {
+	text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* Mobile-specific styles (up to 600px) */
+@media (max-width: 600px) {
+	/* Increase touch target sizes */
+	.MuiButton-root {
+		min-height: 48px;
+		min-width: 48px;
+		font-size: 16px;
+		padding: 12px 16px;
+	}
+
+	/* Make form inputs larger for touch */
+	.MuiInputBase-input {
+		font-size: 16px;
+		padding: 14px 12px;
+		height: auto;
+	}
+
+	/* Increase table cell padding for better readability */
+	.MuiTableCell-root {
+		padding: 8px 6px;
+		font-size: 14px;
+	}
+
+	/* Make table headers sticky on mobile */
+	.MuiTableHead-root {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background-color: white;
+	}
+
+	/* Optimize table layout for mobile */
+	.MuiTable-root {
+		font-size: 14px;
+	}
+
+	/* Make dialog content scrollable */
+	.MuiDialog-paper {
+		margin: 8px;
+		max-height: 90vh;
+	}
+
+	/* Optimize form layout for mobile */
+	.MuiGrid-item {
+		padding: 8px;
+	}
+
+	/* Make navigation drawer full height */
+	.MuiDrawer-paper {
+		height: 100vh;
+	}
+
+	/* Optimize bottom navigation */
+	.MuiBottomNavigation-root {
+		height: 56px;
+	}
+
+	/* Make table rows more touch-friendly */
+	.MuiTableRow-root {
+		height: 48px;
+	}
+
+	/* Optimize modal content */
+	.MuiDialogContent-root {
+		padding: 16px;
+	}
+
+	/* Make action buttons larger */
+	.MuiIconButton-root {
+		width: 48px;
+		height: 48px;
+	}
+
+	/* Optimize fuel stop table for mobile */
+	.fuel-stop-table {
+		font-size: 12px;
+	}
+
+	/* Make date inputs more mobile-friendly */
+	input[type="date"] {
+		font-size: 16px;
+		padding: 12px;
+	}
+
+	/* Optimize load table for mobile */
+	.load-table {
+		font-size: 12px;
+	}
+
+	/* Make action buttons in tables larger */
+	.action-buttons {
+		display: flex;
+		gap: 8px;
+		justify-content: center;
+	}
+
+	/* Optimize dashboard cards for mobile */
+	.dashboard-card {
+		margin-bottom: 16px;
+	}
+
+	/* Make charts responsive */
+	.chart-container {
+		width: 100% !important;
+		height: 300px !important;
+	}
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Tablet styles (601px to 900px) */
+@media (min-width: 601px) and (max-width: 900px) {
+	.MuiButton-root {
+		min-height: 44px;
+		font-size: 15px;
+	}
+
+	.MuiInputBase-input {
+		font-size: 15px;
+		padding: 12px 12px;
+	}
+
+	.MuiTableCell-root {
+		padding: 10px 8px;
+		font-size: 14px;
+	}
+
+	.MuiTable-root {
+		font-size: 14px;
+	}
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+/* Desktop styles (901px and up) */
+@media (min-width: 901px) {
+	.MuiButton-root {
+		min-height: 40px;
+		font-size: 14px;
+	}
+
+	.MuiInputBase-input {
+		font-size: 14px;
+		padding: 10px 12px;
+	}
+
+	.MuiTableCell-root {
+		padding: 12px 16px;
+		font-size: 14px;
+	}
+
+	.MuiTable-root {
+		font-size: 14px;
+	}
 }
 
-.card {
-  padding: 2em;
+/* High DPI displays (Retina) */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+	/* Optimize for high DPI displays */
+	.MuiButton-root {
+		font-weight: 500;
+	}
 }
 
-.read-the-docs {
-  color: #888;
+/* Landscape orientation optimization */
+@media (max-height: 500px) and (orientation: landscape) {
+	/* Adjust for landscape mobile devices */
+	.MuiDialog-paper {
+		max-height: 80vh;
+	}
+
+	.MuiBottomNavigation-root {
+		height: 48px;
+	}
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+	* {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* Print styles */
+@media print {
+	.MuiAppBar-root,
+	.MuiDrawer-root,
+	.MuiBottomNavigation-root,
+	.footer {
+		display: none !important;
+	}
+
+	.main-content {
+		padding: 0 !important;
+	}
+
+	body {
+		background-color: white !important;
+	}
+}
+
+/* Focus styles for better accessibility */
+.Mui-focusVisible {
+	outline: 2px solid #1976d2;
+	outline-offset: 2px;
+}
+
+/* Scrollbar styling for better UX */
+::-webkit-scrollbar {
+	width: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #c1c1c1;
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #a8a8a8;
+}
+
+/* Loading spinner optimization */
+.loading-spinner {
+	width: 40px;
+	height: 40px;
+}
+
+/* Error message styling */
+.error-message {
+	color: #d32f2f;
+	background-color: #ffebee;
+	border: 1px solid #ffcdd2;
+	border-radius: 4px;
+	padding: 12px;
+	margin: 8px 0;
+}
+
+/* Success message styling */
+.success-message {
+	color: #2e7d32;
+	background-color: #e8f5e9;
+	border: 1px solid #c8e6c9;
+	border-radius: 4px;
+	padding: 12px;
+	margin: 8px 0;
+}
+
+/* Warning message styling */
+.warning-message {
+	color: #f57c00;
+	background-color: #fff3e0;
+	border: 1px solid #ffe0b2;
+	border-radius: 4px;
+	padding: 12px;
+	margin: 8px 0;
+}
+
+/* Info message styling */
+.info-message {
+	color: #1565c0;
+	background-color: #e3f2fd;
+	border: 1px solid #bbdefb;
+	border-radius: 4px;
+	padding: 12px;
+	margin: 8px 0;
+}
+
+/* Touch-friendly hover states */
+@media (hover: hover) and (pointer: fine) {
+	.MuiButton-root:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg-color: #121212;
+		--card-bg: #1e1e1e;
+		--text-color: #ffffff;
+		--muted-text: #b0b0b0;
+		--border-color: #333333;
+	}
+}
+
+/* Light mode support */
+@media (prefers-color-scheme: light) {
+	:root {
+		--bg-color: #f5f5f5;
+		--card-bg: #ffffff;
+		--text-color: #000000;
+		--muted-text: #666666;
+		--border-color: #e0e0e0;
+	}
 }

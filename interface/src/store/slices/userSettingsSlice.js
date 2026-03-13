@@ -1,7 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
+import { config } from '../../config';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = config.apiUrl;
 
 // Async thunk for fetching user settings
 export const fetchUserSettings = createAsyncThunk(

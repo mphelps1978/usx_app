@@ -64,7 +64,7 @@ function Settings() {
 				// maintenanceReserve: settings.maintenanceReserve !== null && settings.maintenanceReserve !== undefined ? (settings.maintenanceReserve * 100).toString() : "0",
 				// bondDeposit: settings.bondDeposit !== null && settings.bondDeposit !== undefined ? (settings.bondDeposit * 100).toString() : "0",
 				maintenanceReserve:
-					settings.maintenanceReservex !== null &&
+					settings.maintenanceReserve !== null &&
 					settings.maintenanceReserve !== undefined
 						? (settings.maintenanceReserve * 100).toString() // Display as 0-100
 						: "0",

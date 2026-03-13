@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Login Test</title>
+		<script>
+			async function testLogin() {
+				try {
+					console.log("Testing login request...");
+					const response = await fetch("http://172.20.10.4:3001/api/login", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							email: "test@example.com",
+							password: "testpassword",
+						}),
+					});
+					console.log("Login response status:", response.status);
+					console.log("Login response headers:", response.headers);
+					const data = await response.text();
+					console.log("Login response data:", data);
+
+					document.body.innerHTML +=
+						"<p>Login response status: " + response.status + "</p>";
+					document.body.innerHTML += "<p>Login response data: " + data + "</p>";
+
+					if (response.status === 401) {
+						document.body.innerHTML +=
+							'<p style="color: green;">Login endpoint is working (401 Unauthorized with invalid credentials is expected)</p>';
+					} else {
+						document.body.innerHTML +=
+							'<p style="color: red;">Unexpected login response</p>';
+					}
+				} catch (error) {
+					console.error("Login test failed:", error);
+					document.body.innerHTML +=
+						'<p style="color: red;">Login test failed: ' +
+						error.message +
+						"</p>";
+				}
+			}
+
+			// Run test when page loads
+			window.onload = testLogin;
+		</script>
+	</head>
+	<body>
+		<h1>Login Test</h1>
+		<p>Testing login request to backend API...</p>
+	</body>
+</html>

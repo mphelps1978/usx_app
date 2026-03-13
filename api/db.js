@@ -19,24 +19,35 @@ if (!dbUrl) {
   process.exit(1); // Exit the process with an error code.
 }
 
+// Determine dialect based on the database URL
+const isSQLite = dbUrl.startsWith('sqlite:');
+const dialect = isSQLite ? 'sqlite' : 'postgres';
+
 // Initialize a new Sequelize instance.
 const sequelize = new Sequelize(dbUrl, {
-  dialect: 'postgres',
-  dialectOptions: {
-    ssl: {
-      require: true, // Enforce SSL connection, necessary for services like Supabase.
-      rejectUnauthorized: false, // Often needed for cloud DB services with pooled connections.
-      // For production, consider using the CA certificate from your DB provider
-      // and setting rejectUnauthorized to true for better security.
+  dialect: dialect,
+  ...(isSQLite ? {
+    // SQLite specific options
+    storage: dbUrl.replace('sqlite:', ''), // Extract file path from URL
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+  } : {
+    // PostgreSQL specific options
+    dialectOptions: {
+      ssl: {
+        require: true, // Enforce SSL connection, necessary for services like Supabase.
+        rejectUnauthorized: false, // Often needed for cloud DB services with pooled connections.
+        // For production, consider using the CA certificate from your DB provider
+        // and setting rejectUnauthorized to true for better security.
+      },
     },
-  },
-  // Configure Sequelize logging.
-  // Log SQL queries in development for debugging, but disable in production for performance and cleaner logs.
-  logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    // Configure Sequelize logging.
+    // Log SQL queries in development for debugging, but disable in production for performance and cleaner logs.
+    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+  }),
 });
 
 // Declare model variables. They will be assigned after successful DB authentication.
-let User, Loads, FuelStops, UserSettings;
+let User, Loads, FuelStops, UserSettings, BugReport;
 
 // Renamed for clarity: this function initializes and returns the DB components.
 async function initializeDatabaseAndModels() {
@@ -51,6 +62,7 @@ async function initializeDatabaseAndModels() {
     Loads = require('./models/Loads')(sequelize);
     FuelStops = require('./models/FuelStops')(sequelize);
     UserSettings = require('./models/UserSettings')(sequelize);
+    BugReport = require('./models/BugReport')(sequelize); // Add the new model
     console.log('[DB] All models loaded successfully.');
 
     // Step 3: Define associations between models.
@@ -69,15 +81,23 @@ async function initializeDatabaseAndModels() {
     // User and UserSettings: One-to-One
     User.hasOne(UserSettings, { foreignKey: 'userId', as: 'settings' });
     UserSettings.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+    // User and BugReport: One-to-Many (A User can submit many BugReports)
+    User.hasMany(BugReport, { foreignKey: 'userId', as: 'bugReports' });
+    BugReport.belongsTo(User, { foreignKey: 'userId', as: 'reporter' });
     console.log('[DB] All model associations defined.');
 
     // Step 4: Sync all defined models to the database.
-    // `alter: true` attempts to alter existing tables to match the model.
-    // Be cautious with `alter: true` in production as it can lead to data loss if not handled carefully.
-    // For production, consider using migrations instead of `sync`.
-    // `{ force: true }` would drop and recreate tables - use only in development.
-    await sequelize.sync({ alter: true });
-    console.log('[DB] All tables synced successfully!');
+    // For SQLite, use a more robust approach to handle schema changes
+    if (isSQLite) {
+      // For SQLite, we'll sync without alter to avoid constraint issues
+      await sequelize.sync();
+      console.log('[DB] SQLite tables synced successfully!');
+    } else {
+      // For PostgreSQL, use alter for schema updates
+      await sequelize.sync({ alter: true });
+      console.log('[DB] PostgreSQL tables synced successfully!');
+    }
 
     // Return the initialized components so they can be used after awaiting this function.
     return {
@@ -86,6 +106,7 @@ async function initializeDatabaseAndModels() {
       Loads,
       FuelStops,
       UserSettings,
+      BugReport, // Return the new model
     };
 
   } catch (error) {
