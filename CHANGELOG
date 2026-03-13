@@ -21,3 +21,9 @@ Changelog:
   - Add error logging and reporting on backend
   - Create Bug reporting feature
   - Create Separation of Categories on Settings
+
+0.0.2 - Redesign
+  - Refactor Code Base
+  - Adds fuel discount settlements
+  - properly stores all deductions in db
+  - quick fix to decimal termination in monetary values
