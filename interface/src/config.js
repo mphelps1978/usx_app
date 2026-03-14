@@ -6,9 +6,9 @@ const getApiConfig = () => {
   const protocol = window.location.protocol;
 
   // Production environment (Vercel deployment)
-  if (hostname.includes('vercel.app') || hostname.includes('your-domain.com')) {
+  if (hostname.includes('vercel.app')) {
     return {
-      apiUrl: `${protocol}//${hostname.replace('app.', 'api.')}/api`,
+      apiUrl: `${protocol}//${hostname}/api`,
       frontendUrl: `${protocol}//${hostname}`,
       environment: 'production'
     };

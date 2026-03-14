@@ -112,6 +112,8 @@ In Vercel dashboard, go to Settings > Environment Variables and add:
 - `VITE_API_URL`: Your Supabase Edge Function URL
   - Format: `https://your-project.supabase.co/functions/v1/api`
 
+**Note:** The frontend automatically detects the environment and uses the correct API URL. For Vercel deployments, it will use the current hostname with `/api` appended.
+
 ### 3.3 Deploy
 1. Click "Deploy"
 2. Wait for deployment to complete
