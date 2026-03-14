@@ -20,6 +20,10 @@
       "dest": "/manifest.json"
     },
     {
+      "src": "/test-api-config.html",
+      "dest": "/test-api-config.html"
+    },
+    {
       "src": "/assets/(.*)",
       "dest": "/assets/$1"
     },
