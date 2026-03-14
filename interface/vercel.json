@@ -12,10 +12,6 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "https://your-supabase-project.supabase.co/rest/v1/"
-    },
-    {
       "src": "/(.*)",
       "dest": "/index.html"
     }

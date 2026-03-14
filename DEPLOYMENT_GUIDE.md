@@ -103,6 +103,9 @@ npm run build
    - Build Command: `npm run build`
    - Output Directory: `dist`
    - Install Command: `npm install`
+   - Root Directory: `interface` (select this to deploy only the frontend)
+
+**Important:** The Vercel configuration (`vercel.json`) is set up to serve your React app as a static site. API requests will be handled by your Supabase Edge Function via the `VITE_API_URL` environment variable.
 
 ### 3.2 Set Environment Variables
 In Vercel dashboard, go to Settings > Environment Variables and add:
