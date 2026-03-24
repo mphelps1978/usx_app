@@ -3,14 +3,13 @@
 
 const getApiConfig = () => {
   const hostname = window.location.hostname;
-  const protocol = window.location.protocol;
 
-  // Supabase deployment
-  if (hostname.includes('supabase.co')) {
+  // Production (Vercel)
+  if (hostname !== 'localhost') {
     return {
-      apiUrl: `${protocol}//${hostname}/rest/v1`,
-      frontendUrl: `${protocol}//${hostname}`,
-      environment: 'supabase'
+      apiUrl: 'https://usxapp-production.up.railway.app/api',
+      frontendUrl: 'https://usx-app-ten.vercel.app',
+      environment: 'production'
     };
   }
 
