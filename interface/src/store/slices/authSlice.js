@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
-const apiurl = 'http://localhost:3001/api'
+import { config } from '../../config';
+const apiurl = config.apiUrl;
 
 // The register thunk should return the data needed by its fulfilled reducer.
 // The backend for register returns { message: 'User registered', userId: user.id }.

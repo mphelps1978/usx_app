@@ -14,7 +14,8 @@ import axios from "axios";
 import { useSelector } from "react-redux";
 import { version } from "../../package.json";
 
-const API_URL = "http://localhost:3001/api";
+import { config } from '../config';
+const API_URL = config.apiUrl;
 
 function BugReportModal({ open, onClose }) {
 	const [description, setDescription] = useState("");

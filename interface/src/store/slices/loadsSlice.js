@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from 'axios'
-const apiurl = 'http://localhost:3001/api'
+import { config } from '../../config';
+const apiurl = config.apiUrl;
 
 export const fetchLoads = createAsyncThunk('/loads/fetchLoads', async (_, { getState }) => {
   const { token } = getState().auth

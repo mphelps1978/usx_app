@@ -2,9 +2,8 @@
 import axios from 'axios';
 import { version } from '../../package.json'; // Assuming package.json is two levels up
 
-const API_URL = process.env.NODE_ENV === 'production'
-  ? 'http://localhost:3001/api'
-  : 'http://172.20.10.4:3001/api';
+import { config } from '../config';
+const API_URL = config.apiUrl;
 
 export const logErrorToServer = async (error, contextInfo = {}) => {
   try {
