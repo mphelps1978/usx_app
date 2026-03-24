@@ -42,12 +42,6 @@ import LocalGasStationIcon from "@mui/icons-material/LocalGasStation";
 
 // Helper to format date for display and for date inputs
 const formatDateForDisplay = (dateString) => {
-	console.log(
-		"Raw dateString for display:",
-		dateString,
-		"Type:",
-		typeof dateString
-	);
 	if (!dateString) return "N/A";
 	const date = new Date(dateString);
 	// Check if the date is valid
@@ -545,6 +539,18 @@ function FuelStops() {
 								InputProps={{
 									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
 								}}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Odometer Reading"
+								type="number"
+								name="odometerReading"
+								value={formData.odometerReading || ""}
+								onChange={handleInputChange}
+								fullWidth
+								margin="dense"
+								inputProps={{ step: "1" }}
 							/>
 						</Grid>
 						<Grid item xs={12} sm={6}>

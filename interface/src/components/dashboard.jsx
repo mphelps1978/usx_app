@@ -1,7 +1,8 @@
-import { React, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
-import { fetchLoads } from "../store/slices/loadsSlice";
+import { fetchLoads, updateLoad } from "../store/slices/loadsSlice";
+import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { Bar, Pie, Line } from "react-chartjs-2";
 import {
 	Chart as ChartJS,
@@ -14,6 +15,7 @@ import {
 	Legend,
 	LineElement,
 	PointElement,
+	Filler,
 } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import {
@@ -24,7 +26,11 @@ import {
 	Button, // Import Button
 	CircularProgress,
 	Alert,
+	IconButton,
 } from "@mui/material";
+// import ChartCaptureButton from "./ChartCaptureButton"; // Disabled - kept for debugging
+import EditIcon from "@mui/icons-material/Edit";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 
 ChartJS.register(
 	CategoryScale,
@@ -36,45 +42,25 @@ ChartJS.register(
 	Legend,
 	ChartDataLabels,
 	LineElement,
-	PointElement
+	PointElement,
+	Filler
 );
 
-// Helper function to get ISO week and year key
-function getISOWeekYearKey(date) {
+// Helper to get the closing Wednesday (settlement week key) for a date.
+// Settlement periods close at noon on Wednesday; for date-only data, Wednesday
+// belongs to the settlement closing that day, and Thu–Tue belong to the next.
+// Returns "YYYY-MM-DD" of the closing Wednesday.
+function getSettlementWeekKey(date) {
 	const d = new Date(
 		Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
 	);
-	const dayNum = d.getUTCDay() || 7;
-	d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-	const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-	const weekNo = Math.ceil(
-		((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
-	);
-	return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
-}
-
-// Helper function to get the date of the Wednesday ending a given ISO week
-function getWeekEndingWednesday(year, weekNumber) {
-	// Calculate the date of the first day of the given week
-	// ISO 8601 weeks start on Monday.
-	// The first Thursday of a year is in week 1.
-	const jan4 = new Date(Date.UTC(year, 0, 4)); // January 4th of the year
-	const firstDayOfYear = new Date(Date.UTC(year, 0, 1));
-	const dayOfWeekJan4 = jan4.getUTCDay() || 7; // Sunday is 0, make it 7 for consistency (Mon=1..Sun=7)
-
-	// Calculate the date of the Monday of week 1
-	const mondayOfWeek1 = new Date(jan4);
-	mondayOfWeek1.setUTCDate(jan4.getUTCDate() - dayOfWeekJan4 + 1);
-
-	// Calculate the date of the Monday of the target week
-	const targetMonday = new Date(mondayOfWeek1);
-	targetMonday.setUTCDate(mondayOfWeek1.getUTCDate() + (weekNumber - 1) * 7);
-
-	// Wednesday is 2 days after Monday (Monday is day 0 in this context of a week)
-	const targetWednesday = new Date(targetMonday);
-	targetWednesday.setUTCDate(targetMonday.getUTCDate() + 2);
-
-	return targetWednesday;
+	const dayOfWeek = d.getUTCDay(); // 0=Sun … 3=Wed … 6=Sat
+	const daysUntilWednesday = (3 - dayOfWeek + 7) % 7; // 0 if already Wed
+	d.setUTCDate(d.getUTCDate() + daysUntilWednesday);
+	const year = d.getUTCFullYear();
+	const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+	const day = String(d.getUTCDate()).padStart(2, "0");
+	return `${year}-${month}-${day}`;
 }
 
 function Dashboard() {
@@ -87,9 +73,13 @@ function Dashboard() {
 	} = useSelector(
 		(state) => state.loads || { list: [], loading: false, error: null }
 	);
+	const { list: fuelStops } = useSelector(
+		(state) => state.fuelStops || { list: [] }
+	);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
+		dispatch(fetchFuelStops());
 	}, [dispatch]);
 
 	const handleAddFuelStopForActiveLoad = () => {
@@ -97,6 +87,31 @@ function Dashboard() {
 			navigate("/fuel-stops", {
 				state: { openModalForPro: activeLoad.proNumber },
 			});
+		}
+	};
+
+	const handleEditLoad = () => {
+		if (activeLoad && activeLoad.proNumber) {
+			navigate("/loads");
+			// The loads component will handle opening the modal with the load data
+		}
+	};
+
+	const handleCompleteLoad = async () => {
+		if (activeLoad && activeLoad.proNumber) {
+			const currentDate = new Date();
+			const year = currentDate.getFullYear();
+			const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+			const day = currentDate.getDate().toString().padStart(2, "0");
+			const formattedDate = `${year}-${month}-${day}`;
+
+			const updatedLoadData = {
+				...activeLoad,
+				dateDelivered: formattedDate,
+			};
+			await dispatch(
+				updateLoad({ proNumber: activeLoad.proNumber, load: updatedLoadData })
+			);
 		}
 	};
 
@@ -172,14 +187,21 @@ function Dashboard() {
 		],
 	};
 
-	// Calculate Miles per Net Dollar by Week
+	// Calculate Miles per Net Dollar by Settlement Week (closes Wednesday noon)
+	// Limited to the last 2 months of data
+	const now = new Date();
+	const twoMonthsAgo = new Date(
+		Date.UTC(now.getFullYear(), now.getMonth() - 2, now.getDate())
+	);
+
 	const weeklyMilesAndRevenue = {};
 	loads.forEach((load) => {
 		if (load.dateDelivered && load.projectedNet) {
 			try {
 				const date = new Date(load.dateDelivered);
 				if (isNaN(date.getTime())) return;
-				const weekKey = getISOWeekYearKey(date);
+				if (date < twoMonthsAgo) return;
+				const weekKey = getSettlementWeekKey(date);
 
 				if (!weeklyMilesAndRevenue[weekKey]) {
 					weeklyMilesAndRevenue[weekKey] = {
@@ -203,15 +225,8 @@ function Dashboard() {
 
 	const sortedWeekKeys = Object.keys(weeklyMilesAndRevenue).sort();
 
-	const weeklyChartLabels = sortedWeekKeys.map((key) => {
-		const [yearStr, weekPart] = key.split("-W");
-		const year = parseInt(yearStr, 10);
-		const weekNumber = parseInt(weekPart, 10);
-		const wednesday = getWeekEndingWednesday(year, weekNumber);
-		const month = (wednesday.getUTCMonth() + 1).toString().padStart(2, "0");
-		const day = wednesday.getUTCDate().toString().padStart(2, "0");
-		return `${month}-${day}`;
-	});
+	// Key format is "YYYY-MM-DD" (the closing Wednesday) — extract MM-DD for label
+	const weeklyChartLabels = sortedWeekKeys.map((key) => key.slice(5));
 
 	const milesPerDollarWeeklyDataValues = sortedWeekKeys.map((key) => {
 		const weekData = weeklyMilesAndRevenue[key];
@@ -241,8 +256,50 @@ function Dashboard() {
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
+			legend: {
+				position: "top",
+				labels: {
+					usePointStyle: true,
+					padding: 20,
+					font: {
+						size: 12,
+						weight: "bold",
+					},
+				},
+			},
+			tooltip: {
+				backgroundColor: "rgba(0, 0, 0, 0.8)",
+				titleColor: "#fff",
+				bodyColor: "#fff",
+				borderColor: "rgba(255, 255, 255, 0.1)",
+				borderWidth: 1,
+				padding: 12,
+				cornerRadius: 8,
+			},
 			datalabels: {
 				display: false,
+			},
+		},
+		scales: {
+			x: {
+				grid: {
+					display: false,
+				},
+				ticks: {
+					font: {
+						size: 11,
+					},
+				},
+			},
+			y: {
+				grid: {
+					color: "rgba(0, 0, 0, 0.1)",
+				},
+				ticks: {
+					font: {
+						size: 11,
+					},
+				},
 			},
 		},
 	};
@@ -285,6 +342,197 @@ function Dashboard() {
 		},
 	};
 
+	// Calculate MPG statistics
+	const calculateMPGStats = () => {
+		// Calculate total actual miles from completed loads
+		const totalActualMiles = loads
+			.filter(
+				(load) =>
+					load.dateDelivered && load.endingOdometer && load.startingOdometer
+			)
+			.reduce((sum, load) => {
+				const actualMiles =
+					(load.endingOdometer || 0) - (load.startingOdometer || 0);
+				return sum + Math.max(0, actualMiles); // Ensure non-negative
+			}, 0);
+
+		// Calculate total gallons from all fuel stops
+		const totalGallons = fuelStops.reduce((sum, stop) => {
+			return sum + (parseFloat(stop.gallonsDieselPurchased) || 0);
+		}, 0);
+
+		// Calculate overall MPG
+		const overallMpg = totalGallons > 0 ? totalActualMiles / totalGallons : 0;
+
+		return {
+			totalMiles: Math.round(totalActualMiles),
+			totalGallons: Math.round(totalGallons * 100) / 100,
+			overallMpg: Math.round(overallMpg * 100) / 100,
+		};
+	};
+
+	const mpgStats = calculateMPGStats();
+
+	// Generate MPG trend chart data - by settlement week, last 2 months
+	const generateMPGChartData = () => {
+		const sortedStops = [...fuelStops].sort(
+			(a, b) => new Date(a.dateOfStop) - new Date(b.dateOfStop)
+		);
+
+		if (sortedStops.length === 0) return { labels: [], datasets: [] };
+
+		// Anchor 2-month window to the latest data point, not today,
+		// so demo/future-dated data still gets filtered correctly.
+		const latestDate = new Date(sortedStops[sortedStops.length - 1].dateOfStop);
+		const cutoff = new Date(latestDate);
+		cutoff.setMonth(cutoff.getMonth() - 2);
+
+		const recentStops = sortedStops.filter(
+			(stop) => new Date(stop.dateOfStop) >= cutoff
+		);
+
+		// Group by settlement week (closing Wednesday)
+		const weeklyData = {};
+		recentStops.forEach((stop) => {
+			if (stop.odometerReading && stop.gallonsDieselPurchased) {
+				const stopDate = new Date(stop.dateOfStop);
+				const weekKey = getSettlementWeekKey(stopDate);
+
+				if (!weeklyData[weekKey]) {
+					weeklyData[weekKey] = {
+						totalGallons: 0,
+						firstOdometer: null,
+						lastOdometer: null,
+					};
+				}
+
+				weeklyData[weekKey].totalGallons +=
+					parseFloat(stop.gallonsDieselPurchased) || 0;
+
+				const odometer = parseFloat(stop.odometerReading) || 0;
+				if (weeklyData[weekKey].firstOdometer === null) {
+					weeklyData[weekKey].firstOdometer = odometer;
+				}
+				weeklyData[weekKey].lastOdometer = odometer;
+			}
+		});
+
+		const labels = [];
+		const data = [];
+
+		Object.keys(weeklyData)
+			.sort()
+			.forEach((weekKey) => {
+				const weekData = weeklyData[weekKey];
+				const totalMiles =
+					weekData.firstOdometer !== null && weekData.lastOdometer !== null
+						? weekData.lastOdometer - weekData.firstOdometer
+						: 0;
+
+				if (weekData.totalGallons > 0 && totalMiles > 0) {
+					// Label is MM-DD of the closing Wednesday
+					labels.push(weekKey.slice(5));
+					data.push(Math.round((totalMiles / weekData.totalGallons) * 100) / 100);
+				}
+			});
+
+		return {
+			labels,
+			datasets: [
+				{
+					label: "Weekly MPG",
+					data,
+					borderColor: "rgba(75, 192, 192, 1)",
+					backgroundColor: "rgba(75, 192, 192, 0.2)",
+					tension: 0.4,
+					fill: true,
+					pointRadius: 0,
+					pointHoverRadius: 5,
+					pointHoverBackgroundColor: "rgba(75, 192, 192, 1)",
+					pointHoverBorderColor: "#fff",
+					pointHoverBorderWidth: 2,
+				},
+			],
+		};
+	};
+
+	const mpgChartData = generateMPGChartData();
+
+	const mpgChartOptions = {
+		responsive: true,
+		maintainAspectRatio: false,
+		plugins: {
+			legend: {
+				position: "top",
+				labels: {
+					usePointStyle: true,
+					padding: 20,
+					font: {
+						size: 12,
+						weight: "bold",
+					},
+				},
+			},
+			title: {
+				display: true,
+				text: "Fuel Efficiency Tracking",
+				font: {
+					size: 16,
+					weight: "bold",
+				},
+				padding: 20,
+			},
+			datalabels: {
+				display: false,
+			},
+			tooltip: {
+				backgroundColor: "rgba(0, 0, 0, 0.8)",
+				titleColor: "#fff",
+				bodyColor: "#fff",
+				borderColor: "rgba(255, 255, 255, 0.1)",
+				borderWidth: 1,
+				padding: 12,
+				cornerRadius: 8,
+				callbacks: {
+					label: function (context) {
+						return `MPG: ${context.parsed.y}`;
+					},
+				},
+			},
+		},
+		scales: {
+			x: {
+				grid: {
+					display: false,
+				},
+				ticks: {
+					font: {
+						size: 11,
+					},
+				},
+			},
+			y: {
+				beginAtZero: true,
+				title: {
+					display: true,
+					text: "MPG",
+					font: {
+						size: 12,
+						weight: "bold",
+					},
+				},
+				grid: {
+					color: "rgba(0, 0, 0, 0.1)",
+				},
+				ticks: {
+					font: {
+						size: 11,
+					},
+				},
+			},
+		},
+	};
+
 	const activeLoad = loads.find((load) => !load.dateDelivered);
 
 	return (
@@ -292,6 +540,8 @@ function Dashboard() {
 			<Typography variant="h4" gutterBottom component="h2" sx={{ mb: 2 }}>
 				Dashboard
 			</Typography>
+
+			{/* <ChartCaptureButton /> */}{/* Disabled - kept for debugging */}
 
 			{activeLoad && (
 				<Box
@@ -334,6 +584,24 @@ function Dashboard() {
 					>
 						Status: In Transit
 					</Typography>
+					<IconButton
+						onClick={handleCompleteLoad}
+						color="success"
+						size="small"
+						sx={{ ml: 1 }}
+						title="Mark as Delivered"
+					>
+						<CheckCircleOutlineIcon />
+					</IconButton>
+					<IconButton
+						onClick={handleEditLoad}
+						color="primary"
+						size="small"
+						sx={{ ml: 1 }}
+						title="Edit Load"
+					>
+						<EditIcon />
+					</IconButton>
 					<Button
 						variant="outlined"
 						size="small"
@@ -409,6 +677,25 @@ function Dashboard() {
 						</Typography>
 						<Box sx={{ flexGrow: 1, position: "relative" }}>
 							<Line data={netRevenuePerMileData} options={baseChartOptions} />
+						</Box>
+					</Paper>
+				</Grid>
+				<Grid item xs={12} md={6} lg={4}>
+					<Paper
+						sx={{
+							p: 2,
+							display: "flex",
+							flexDirection: "column",
+							height: 300,
+							backgroundColor: "transparent",
+							boxShadow: "none",
+						}}
+					>
+						<Typography variant="h6" gutterBottom component="h3">
+							Fuel Efficiency (MPG)
+						</Typography>
+						<Box sx={{ flexGrow: 1, position: "relative" }}>
+							<Line data={mpgChartData} options={mpgChartOptions} />
 						</Box>
 					</Paper>
 				</Grid>

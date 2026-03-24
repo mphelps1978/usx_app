@@ -18,6 +18,9 @@ module.exports = (sequelize) => {
     settledTotalDieselCost: { type: DataTypes.FLOAT, allowNull: true }, // New field for settled total
     fuelCardUsed: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     discountEligible: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    odometerReading: { type: DataTypes.FLOAT, allowNull: true },
+    previousOdometer: { type: DataTypes.FLOAT, allowNull: true },
+    calculatedMpg: { type: DataTypes.FLOAT, allowNull: true },
 
   }, {
     timestamps: true,

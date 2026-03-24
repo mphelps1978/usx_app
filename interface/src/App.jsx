@@ -42,6 +42,9 @@ import {
 	BottomNavigation,
 	BottomNavigationAction,
 	Container,
+	Collapse,
+	ListSubheader,
+	Chip,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -55,6 +58,8 @@ import ExitToAppIcon from "@mui/icons-material/ExitToApp";
 import SettingsIcon from "@mui/icons-material/Settings";
 import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism";
 import HomeIcon from "@mui/icons-material/Home";
+import ExpandLess from "@mui/icons-material/ExpandLess";
+import ExpandMore from "@mui/icons-material/ExpandMore";
 import { version } from "../package.json";
 import { logErrorToServer } from "./utils/errorLogger";
 import BugReportModal from "./components/BugReportModal";
@@ -70,6 +75,29 @@ function App() {
 	const [isBugModalOpen, setIsBugModalOpen] = useState(false);
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [value, setValue] = useState(0);
+
+	// Menu state for dropdowns
+	const [onTheRoadAnchorEl, setOnTheRoadAnchorEl] = useState(null);
+	const [inTheOfficeAnchorEl, setInTheOfficeAnchorEl] = useState(null);
+	const [isOnTheRoadOpen, setIsOnTheRoadOpen] = useState(false);
+	const [isInTheOfficeOpen, setIsInTheOfficeOpen] = useState(false);
+	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+	// Menu data structure
+	const menuItems = {
+		"On The Road": [
+			{ text: "Loads", path: "/loads", icon: <LocalShippingIcon /> },
+			{
+				text: "Fuel Stops",
+				path: "/fuel-stops",
+				icon: <LocalGasStationIcon />,
+			},
+		],
+		"In The Office": [
+			{ text: "Expenses", path: "/other-expenses", icon: <AttachMoneyIcon /> },
+			{ text: "Maintenance", path: "/maintenance", icon: <BuildIcon /> },
+		],
+	};
 
 	// Fetch user settings when the authenticated app loads
 	useEffect(() => {
@@ -126,12 +154,36 @@ function App() {
 		window.open(PAYPAL_DONATION_LINK, "_blank", "noopener,noreferrer");
 	};
 
+	// Menu handlers
+	const handleOnTheRoadClick = (event) => {
+		setOnTheRoadAnchorEl(event.currentTarget);
+		setIsOnTheRoadOpen(true);
+	};
+
+	const handleInTheOfficeClick = (event) => {
+		setInTheOfficeAnchorEl(event.currentTarget);
+		setIsInTheOfficeOpen(true);
+	};
+
+	const handleMenuClose = () => {
+		setOnTheRoadAnchorEl(null);
+		setInTheOfficeAnchorEl(null);
+		setIsOnTheRoadOpen(false);
+		setIsInTheOfficeOpen(false);
+	};
+
+	const handleMenuItemClick = (path) => {
+		navigate(path);
+		handleMenuClose();
+	};
+
 	// Mobile navigation items
 	const mobileNavItems = [
 		{ text: "Dashboard", path: "/dashboard", icon: <DashboardIcon /> },
 		{ text: "Loads", path: "/loads", icon: <LocalShippingIcon /> },
 		{ text: "Fuel Stops", path: "/fuel-stops", icon: <LocalGasStationIcon /> },
-		{ text: "Settings", path: "/settings", icon: <SettingsIcon /> },
+		{ text: "Expenses", path: "/other-expenses", icon: <AttachMoneyIcon /> },
+		{ text: "Maintenance", path: "/maintenance", icon: <BuildIcon /> },
 	];
 
 	// Bottom navigation for quick access
@@ -181,7 +233,59 @@ function App() {
 					>
 						USX IC Books
 					</Typography>
-					<Box sx={{ flexGrow: 1 }} />
+
+					{/* Desktop Menu */}
+					<Box sx={{ flexGrow: 1, display: { xs: "none", sm: "flex" } }}>
+						<Button
+							color="inherit"
+							onClick={handleOnTheRoadClick}
+							endIcon={isOnTheRoadOpen ? <ExpandLess /> : <ExpandMore />}
+						>
+							On The Road
+						</Button>
+						<Menu
+							anchorEl={onTheRoadAnchorEl}
+							open={Boolean(onTheRoadAnchorEl) && isOnTheRoadOpen}
+							onClose={handleMenuClose}
+						>
+							{menuItems["On The Road"].map((item) => (
+								<MenuItem
+									key={item.text}
+									onClick={() => handleMenuItemClick(item.path)}
+									sx={{ minWidth: 150 }}
+								>
+									<ListItemIcon>{item.icon}</ListItemIcon>
+									<ListItemText>{item.text}</ListItemText>
+								</MenuItem>
+							))}
+						</Menu>
+
+						<Button
+							color="inherit"
+							onClick={handleInTheOfficeClick}
+							endIcon={isInTheOfficeOpen ? <ExpandLess /> : <ExpandMore />}
+						>
+							In The Office
+						</Button>
+						<Menu
+							anchorEl={inTheOfficeAnchorEl}
+							open={Boolean(inTheOfficeAnchorEl) && isInTheOfficeOpen}
+							onClose={handleMenuClose}
+						>
+							{menuItems["In The Office"].map((item) => (
+								<MenuItem
+									key={item.text}
+									onClick={() => handleMenuItemClick(item.path)}
+									sx={{ minWidth: 150 }}
+								>
+									<ListItemIcon>{item.icon}</ListItemIcon>
+									<ListItemText>{item.text}</ListItemText>
+								</MenuItem>
+							))}
+						</Menu>
+					</Box>
+
+					<Box sx={{ flexGrow: 1, display: { sm: "none" } }} />
 					<Button
 						color="inherit"
 						onClick={handleDonateClick}
@@ -190,6 +294,15 @@ function App() {
 					>
 						Support App
 					</Button>
+					<Tooltip title="Settings">
+						<IconButton
+							color="inherit"
+							onClick={() => setIsSettingsOpen(true)}
+							sx={{ ml: 1 }}
+						>
+							<SettingsIcon />
+						</IconButton>
+					</Tooltip>
 					<Button
 						color="inherit"
 						onClick={handleLogout}
@@ -214,12 +327,12 @@ function App() {
 					keepMounted: true, // Better open performance on mobile.
 				}}
 			>
-				<Box onClick={handleDrawerToggle} sx={{ textAlign: "center", p: 2 }}>
+				<Box sx={{ textAlign: "center", p: 2 }}>
 					<Typography variant="h6" sx={{ my: 2 }}>
 						Navigation
 					</Typography>
 					<Divider />
-					<List>
+					<List onClick={handleDrawerToggle}>
 						{mobileNavItems.map((item) => (
 							<ListItem key={item.text} disablePadding>
 								<ListItemButton
@@ -233,12 +346,29 @@ function App() {
 							</ListItem>
 						))}
 					</List>
+					<Divider />
+					<List>
+						<ListItem disablePadding>
+							<ListItemButton
+								onClick={() => { handleDrawerToggle(); setIsSettingsOpen(true); }}
+								sx={{ minHeight: 48 }}
+							>
+								<ListItemIcon><SettingsIcon /></ListItemIcon>
+								<ListItemTextMui primary="Settings" />
+							</ListItemButton>
+						</ListItem>
+					</List>
 				</Box>
 			</Drawer>
 
 			<Box
 				component="main"
-				sx={{ flexGrow: 1, p: { xs: 1, sm: 3 }, width: "100%" }}
+				sx={{
+					flexGrow: 1,
+					p: { xs: 1, sm: 3 },
+					width: "100%",
+					mt: { xs: 8, sm: 8 },
+				}}
 			>
 				<Container maxWidth="xl">
 					<Routes>
@@ -250,7 +380,6 @@ function App() {
 						<Route path="/other-expenses" element={<OtherExpenses />} />
 						<Route path="/settlements" element={<Settlements />} />
 						<Route path="/taxes" element={<Taxes />} />
-						<Route path="/settings" element={<Settings />} />
 						<Route path="/" element={<Navigate to="/dashboard" />} />
 						<Route path="*" element={<Navigate to="/dashboard" />} />
 					</Routes>
@@ -312,6 +441,7 @@ function App() {
 				</MuiLink>
 			</Box>
 			<BugReportModal open={isBugModalOpen} onClose={handleCloseBugModal} />
+			<Settings open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 		</Box>
 	);
 }

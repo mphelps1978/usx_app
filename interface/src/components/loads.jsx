@@ -109,12 +109,14 @@ function Loads() {
 		(state) => state.userSettings || { settings: {}, loading: false }
 	);
 	const formData = useSelector((state) => state.form || {});
-	console.log(
-		"[Loads.jsx Component Render] formData from useSelector:",
-		JSON.stringify(formData)
-	);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [modalError, setModalError] = useState(null);
+
+	// Handle input changes
+	const handleInputChange = (e) => {
+		const { name, value } = e.target;
+		dispatch(updateFormData({ [name]: value }));
+	};
 
 	useEffect(() => {
 		dispatch(fetchLoads());
@@ -246,19 +248,6 @@ function Loads() {
 			allFuelStops
 		);
 		const currentTotalMiles = deadheadMiles + loadedMiles;
-		console.log("[Load.jsx useMemo] formData:", JSON.stringify(formData));
-		console.log(
-			"[Load.jsx useMemo] userSettings:",
-			JSON.stringify(userSettings)
-		);
-		console.log(
-			"[Loads.jsx useMemo] deadheadMiles:",
-			deadheadMiles,
-			"loadedMiles:",
-			loadedMiles,
-			"currentTotalMiles:",
-			currentTotalMiles
-		);
 
 		let gross = 0;
 
@@ -375,10 +364,6 @@ function Loads() {
 			bondDeposit: bondDepositDeduction,
 			mrpFee: mrpFeeDeduction,
 		};
-		console.log(
-			"[Loads.jsx handleSubmitModal] payload:",
-			JSON.stringify(payload)
-		);
 
 		if (
 			payload.id ||
@@ -518,26 +503,19 @@ function Loads() {
 						<Table sx={{ minWidth: 650 }} aria-label="loads table">
 							<TableHead sx={{ backgroundColor: "grey.200" }}>
 								<TableRow>
-									<TableCell>PRO Number</TableCell>
-									<TableCell>Date Dispatched</TableCell>
-									<TableCell>Date Delivered</TableCell>
-									<TableCell>Trailer Number</TableCell>
+									<TableCell>PRO</TableCell>
+									<TableCell>Dispatched</TableCell>
+									<TableCell>Status</TableCell>
 									<TableCell>Origin</TableCell>
 									<TableCell>Destination</TableCell>
-									<TableCell align="right">Deadhead Miles</TableCell>
-									<TableCell align="right">Loaded Miles</TableCell>
+									<TableCell align="right">Miles</TableCell>
 									<TableCell align="right">Weight</TableCell>
 									{userSettings?.driverPayType === "percentage" && (
-										<TableCell align="right">Linehaul</TableCell>
+										<TableCell align="right">Pay</TableCell>
 									)}
-									<TableCell align="right">FSC / Rate</TableCell>
-									<TableCell align="right">Calculated Gross</TableCell>
-									<TableCell align="right">Deductions</TableCell>
-									<TableCell align="right">Fuel Cost</TableCell>
-									<TableCell align="right">Fuel Discount</TableCell>
-									<TableCell align="right">Net to Truck</TableCell>
-									<TableCell align="right">Scale Cost</TableCell>
-									<TableCell align="right">Projected Net</TableCell>
+									<TableCell align="right">Rate</TableCell>
+									<TableCell align="right">Gross</TableCell>
+									<TableCell align="right">Net</TableCell>
 									<TableCell align="center">Actions</TableCell>
 								</TableRow>
 							</TableHead>
@@ -575,12 +553,6 @@ function Loads() {
 											bondDepositDeduction +
 											mrpFeeDeduction;
 
-										// Calculate actual fuel cost for this specific load
-										const actualFuelCostForLoad = calculateTotalFuelCost(
-											load.proNumber,
-											allFuelStops
-										);
-
 										// Calculate fuel discount for this specific load
 										const fuelDiscountForLoad = calculateFuelDiscount(
 											load.proNumber,
@@ -591,22 +563,6 @@ function Loads() {
 										const netToTruckForLoad = calculateNetToTruck(
 											load,
 											allFuelStops
-										);
-
-										// Console log for verification as requested
-										console.log(
-											`[Loads Table Calculation] PRO: ${
-												load.proNumber
-											}, Calculated Total Deductions: $${calculatedTotalDeductionsForLoad.toFixed(
-												2
-											)}, Total Miles: ${totalMilesForLoad}`
-										);
-										console.log(
-											`[Loads Table Calculation] PRO: ${
-												load.proNumber
-											}, Fuel Discount: $${fuelDiscountForLoad.toFixed(
-												2
-											)}, Net to Truck: $${netToTruckForLoad.toFixed(2)}`
 										);
 
 										return (
@@ -635,17 +591,13 @@ function Loads() {
 														</Typography>
 													)}
 												</TableCell>
-												<TableCell>{load.trailerNumber || "N/A"}</TableCell>
 												<TableCell>{`${load.originCity || ""}, ${
 													load.originState || ""
 												}`}</TableCell>
 												<TableCell>{`${load.destinationCity || ""}, ${
 													load.destinationState || ""
 												}`}</TableCell>
-												<TableCell align="right">
-													{load.deadheadMiles}
-												</TableCell>
-												<TableCell align="right">{load.loadedMiles}</TableCell>
+												<TableCell align="right">{totalMilesForLoad}</TableCell>
 												<TableCell align="right">{load.weight}</TableCell>
 												{userSettings?.driverPayType === "percentage" && (
 													<TableCell align="right">
@@ -658,7 +610,7 @@ function Loads() {
 												<TableCell align="right">
 													{load.driverPayType === "percentage" &&
 													load.fsc !== null
-														? `$${(load.fsc || 0).toFixed(2)} (Total)`
+														? `$${(load.fsc || 0).toFixed(2)}`
 														: load.driverPayType === "mileage" &&
 														  load.fscPerLoadedMile !== null
 														? `$${(load.fscPerLoadedMile || 0).toFixed(2)}`
@@ -671,62 +623,41 @@ function Loads() {
 												</TableCell>
 												<TableCell align="right">
 													{`$${(
-														Math.round(
-															calculatedTotalDeductionsForLoad || 0 * 100
-														) / 100
-													).toFixed(2)}`}
-												</TableCell>
-
-												<TableCell align="right">
-													{`$${(
-														Math.round(actualFuelCostForLoad || 0 * 100) / 100
-													).toFixed(2)}`}
-												</TableCell>
-												<TableCell align="right">
-													{`$${(
-														Math.round(fuelDiscountForLoad * 100) / 100
-													).toFixed(2)}`}
-												</TableCell>
-												<TableCell align="right">
-													{`$${(
 														Math.round(netToTruckForLoad * 100) / 100
-													).toFixed(2)}`}
-												</TableCell>
-												<TableCell align="right">
-													{`$${(
-														Math.round(load.scaleCost || 0 * 100) / 100
-													).toFixed(2)}`}
-												</TableCell>
-												<TableCell align="right">
-													{`$${(
-														Math.round(load.projectedNet || 0 * 100) / 100
 													).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="center">
 													{!load.dateDelivered && (
-														<IconButton
-															onClick={() => handleCompleteLoad(load)}
-															color="success"
-															size="small"
-															title="Complete Load"
-														>
-															<CheckCircleOutlineIcon />
-														</IconButton>
+														<Tooltip title="Mark as Delivered">
+															<IconButton
+																onClick={() => handleCompleteLoad(load)}
+																color="success"
+																size="small"
+																sx={{ mr: 1 }}
+															>
+																<CheckCircleOutlineIcon />
+															</IconButton>
+														</Tooltip>
 													)}
-													<IconButton
-														onClick={() => handleEditLoad(load)}
-														color="primary"
-														size="small"
-													>
-														<EditIcon />
-													</IconButton>
-													<IconButton
-														onClick={() => handleDelete(load.proNumber)}
-														color="error"
-														size="small"
-													>
-														<DeleteIcon />
-													</IconButton>
+													<Tooltip title="Edit Load">
+														<IconButton
+															onClick={() => handleEditLoad(load)}
+															color="primary"
+															size="small"
+															sx={{ mr: 1 }}
+														>
+															<EditIcon />
+														</IconButton>
+													</Tooltip>
+													<Tooltip title="Delete Load">
+														<IconButton
+															onClick={() => handleDelete(load.proNumber)}
+															color="error"
+															size="small"
+														>
+															<DeleteIcon />
+														</IconButton>
+													</Tooltip>
 												</TableCell>
 											</TableRow>
 										);
@@ -1033,14 +964,39 @@ function Loads() {
 						</Grid>
 						<Grid item xs={12} sm={6} md={3}>
 							<TextField
-								label="Projected Net"
-								value={projectedNetModal.toFixed(2)}
+								label="Starting Odometer"
+								type="number"
+								name="startingOdometer"
+								value={formData.startingOdometer || ""}
+								onChange={handleInputChange}
 								fullWidth
 								margin="dense"
-								disabled={true}
-								InputProps={{
-									startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography>,
-								}}
+								inputProps={{ step: "1" }}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Ending Odometer"
+								type="number"
+								name="endingOdometer"
+								value={formData.endingOdometer || ""}
+								onChange={handleInputChange}
+								fullWidth
+								margin="dense"
+								inputProps={{ step: "1" }}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Actual Miles"
+								type="number"
+								name="actualMiles"
+								value={formData.actualMiles || ""}
+								onChange={handleInputChange}
+								fullWidth
+								margin="dense"
+								inputProps={{ step: "0.01" }}
+								disabled
 							/>
 						</Grid>
 					</Grid>

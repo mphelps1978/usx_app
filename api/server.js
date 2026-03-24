@@ -12,7 +12,7 @@ const { Op } = require('sequelize'); // Sequelize Op can be required directly
 const app = express();
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://172.20.10.4:5173'],
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://172.20.10.4:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Custom-Header'],
@@ -128,6 +128,9 @@ async function startServer() {
           maintenanceReserve,
           bondDeposit,
           mrpFee,
+          startingOdometer: restOfBody.startingOdometer || null,
+          endingOdometer: restOfBody.endingOdometer || null,
+          actualMiles: restOfBody.actualMiles || null,
           // fuelCost: 0, // Initialize fuelCost if it's not coming from frontend but required by model
         };
 
@@ -365,6 +368,32 @@ async function startServer() {
           calculatedTotalFuelStopCost += 1.00;
         }
 
+        // Calculate MPG if odometer reading is provided
+        let previousOdometer = null;
+        let calculatedMpg = null;
+
+        if (req.body.odometerReading) {
+          const currentOdometer = parseFloat(req.body.odometerReading);
+
+          // Find the most recent fuel stop for this user to get previous odometer
+          const previousFuelStop = await FuelStops.findOne({
+            where: {
+              userId: req.userId,
+              odometerReading: { [Op.ne]: null },
+            },
+            order: [['createdAt', 'DESC']],
+            limit: 1
+          });
+
+          if (previousFuelStop && previousFuelStop.odometerReading) {
+            previousOdometer = previousFuelStop.odometerReading;
+            const milesSinceLastFillup = currentOdometer - previousOdometer;
+            if (gdp > 0 && milesSinceLastFillup > 0) {
+              calculatedMpg = parseFloat((milesSinceLastFillup / gdp).toFixed(2));
+            }
+          }
+        }
+
         // Map frontend payload and calculated values to the FuelStops model fields
         // Ensure your FuelStops model uses these camelCase field names
         const fuelStopData = {
@@ -382,6 +411,9 @@ async function startServer() {
           totalFuelStop: parseFloat(calculatedTotalFuelStopCost.toFixed(2)),
           fuelCardUsed: !!fuelCardUsed, // Ensure boolean
           discountEligible: !!discountEligible, // Ensure boolean
+          odometerReading: req.body.odometerReading || null,
+          previousOdometer: previousOdometer,
+          calculatedMpg: calculatedMpg,
           settledDieselPricePerGallon: null, // Initialize as null for new fuel stops
           settledTotalDieselCost: null, // Initialize as null for new fuel stops
         };

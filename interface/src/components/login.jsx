@@ -1,4 +1,3 @@
-// src/components/Login.jsx
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { login } from "../store/slices/authSlice";
@@ -15,7 +14,7 @@ import {
 	Alert,
 } from "@mui/material";
 
-function Login() {
+const Login = () => {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const dispatch = useDispatch();
@@ -111,6 +110,6 @@ function Login() {
 			</Card>
 		</Container>
 	);
-}
+};
 
 export default Login;
