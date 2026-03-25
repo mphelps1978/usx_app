@@ -5,7 +5,13 @@ Changelog:
   - Added User Settings for Standard Deductions to API (GET PUT)
   - Added User Settings for Standard Deductions to User Settings Component.
   
-0.0.04 - Active Version - NOT DEPLOYED
+0.0.05 - Active Version
+  - Full remote deployment: API on Railway, database migrated to Supabase PostgreSQL
+  - Dashboard: Projected Settlement Revenue widget (current period, centered)
+  - Auth: Auto-redirect to login on expired session (401 interceptor)
+  - Bugfix: All Redux slices and components now use config.js for API URL (were hardcoded to localhost)
+
+0.0.04 - DEPLOYED
   - Fixed some dependency mismatching causing render issues on the frontend
   - Added logic to calculate total deductions on loads screen
   - QOL Adjustments for FuelStop component

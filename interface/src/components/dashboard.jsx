@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { fetchLoads, updateLoad } from "../store/slices/loadsSlice";
@@ -23,10 +23,11 @@ import {
 	Paper,
 	Typography,
 	Box,
-	Button, // Import Button
+	Button,
 	CircularProgress,
 	Alert,
 	IconButton,
+	Divider,
 } from "@mui/material";
 // import ChartCaptureButton from "./ChartCaptureButton"; // Disabled - kept for debugging
 import EditIcon from "@mui/icons-material/Edit";
@@ -535,6 +536,36 @@ function Dashboard() {
 
 	const activeLoad = loads.find((load) => !load.dateDelivered);
 
+	// Current settlement period: Thu → Wed (closes Wednesday)
+	const { settlementLoads, settlementTotal, periodLabel } = useMemo(() => {
+		const today = new Date();
+		const closingWedStr = getSettlementWeekKey(today);
+		const closingDate = new Date(closingWedStr + "T00:00:00Z");
+		const openingDate = new Date(closingDate);
+		openingDate.setUTCDate(openingDate.getUTCDate() - 6);
+
+		const fmt = (d) =>
+			d.toLocaleDateString("en-US", {
+				month: "short",
+				day: "numeric",
+				timeZone: "UTC",
+			});
+		const periodLabel = `${fmt(openingDate)} – ${fmt(closingDate)}`;
+
+		const settlementLoads = loads.filter((load) => {
+			if (!load.dateDelivered) return false;
+			const delivered = new Date(load.dateDelivered + "T00:00:00Z");
+			return delivered >= openingDate && delivered <= closingDate;
+		});
+
+		const settlementTotal = settlementLoads.reduce(
+			(sum, load) => sum + (parseFloat(load.projectedNet) || 0),
+			0
+		);
+
+		return { settlementLoads, settlementTotal, periodLabel };
+	}, [loads]);
+
 	return (
 		<Box sx={{ flexGrow: 1 }}>
 			<Typography variant="h4" gutterBottom component="h2" sx={{ mb: 2 }}>
@@ -542,6 +573,11 @@ function Dashboard() {
 			</Typography>
 
 			{/* <ChartCaptureButton /> */}{/* Disabled - kept for debugging */}
+
+			<Typography variant="subtitle1" sx={{ mb: 2, textAlign: "center", fontSize: "1.2rem" }}>
+				Projected Settlement Revenue ({periodLabel}):{" "}
+				<strong>${settlementTotal.toFixed(2)}</strong>
+			</Typography>
 
 			{activeLoad && (
 				<Box

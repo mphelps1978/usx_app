@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import axios from "axios";
 import {
 	Route,
 	Routes,
@@ -137,6 +138,21 @@ function App() {
 			window.onunhandledrejection = originalOnUnhandledRejection;
 		};
 	}, []);
+
+	// Redirect to login on 401
+	useEffect(() => {
+		const interceptor = axios.interceptors.response.use(
+			(response) => response,
+			(error) => {
+				if (error.response?.status === 401) {
+					dispatch(logout());
+					navigate("/login", { state: { message: "You must be logged in to access this page." } });
+				}
+				return Promise.reject(error);
+			}
+		);
+		return () => axios.interceptors.response.eject(interceptor);
+	}, [dispatch, navigate]);
 
 	const handleOpenBugModal = () => setIsBugModalOpen(true);
 	const handleCloseBugModal = () => setIsBugModalOpen(false);

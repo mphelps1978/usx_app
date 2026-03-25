@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { login } from "../store/slices/authSlice";
-import { useNavigate, Link as RouterLink } from "react-router-dom";
+import { useNavigate, useLocation, Link as RouterLink } from "react-router-dom";
 import {
 	Container,
 	Box,
@@ -20,6 +20,8 @@ const Login = () => {
 	const dispatch = useDispatch();
 	const { error } = useSelector((state) => state.auth || {});
 	const navigate = useNavigate();
+	const location = useLocation();
+	const redirectMessage = location.state?.message;
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
@@ -61,6 +63,11 @@ const Login = () => {
 					>
 						Sign In
 					</Typography>
+					{redirectMessage && (
+						<Alert severity="warning" sx={{ mb: 2 }}>
+							{redirectMessage}
+						</Alert>
+					)}
 					{error && (
 						<Alert severity="error" sx={{ mb: 2 }}>
 							{error}
