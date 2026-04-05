@@ -139,12 +139,16 @@ function App() {
 		};
 	}, []);
 
-	// Redirect to login on 401
+	// Redirect to login on 401 from protected API calls (not failed login/register)
 	useEffect(() => {
 		const interceptor = axios.interceptors.response.use(
 			(response) => response,
 			(error) => {
 				if (error.response?.status === 401) {
+					const reqUrl = error.config?.url ?? "";
+					if (reqUrl.includes("/login") || reqUrl.includes("/register")) {
+						return Promise.reject(error);
+					}
 					dispatch(logout());
 					navigate("/login", { state: { message: "You must be logged in to access this page." } });
 				}

@@ -29,7 +29,13 @@ function Register() {
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
-		const result = await dispatch(register({ username, email, password }));
+		const result = await dispatch(
+			register({
+				username: username.trim(),
+				email: email.trim(),
+				password,
+			})
+		);
 		if (register.fulfilled.match(result)) {
 			// Navigate to settings page after successful registration and auto-login
 			navigate("/settings");

@@ -1,4 +1,4 @@
-import { React, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLocation, useNavigate } from "react-router-dom"; // Import useLocation and useNavigate
 import {
@@ -39,6 +39,7 @@ import {
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import LocalGasStationIcon from "@mui/icons-material/LocalGasStation";
+import { config } from "../config";
 
 // Helper to format date for display and for date inputs
 const formatDateForDisplay = (dateString) => {
@@ -80,6 +81,7 @@ function FuelStops() {
 		error,
 	} = useSelector((state) => state.fuelStops);
 	const { list: loads } = useSelector((state) => state.loads);
+	const authToken = useSelector((state) => state.auth?.token);
 
 	const initialFormData = {
 		fuelCardUsed: false,
@@ -237,14 +239,13 @@ function FuelStops() {
 		}
 
 		try {
-			// Call the settle endpoint
 			const response = await fetch(
-				`/api/fuelstops/${fuelStopToSettle.id}/settle`,
+				`${config.apiUrl}/fuelstops/${fuelStopToSettle.id}/settle`,
 				{
 					method: "PUT",
 					headers: {
 						"Content-Type": "application/json",
-						Authorization: `Bearer ${localStorage.getItem("token")}`,
+						Authorization: `Bearer ${authToken}`,
 					},
 					body: JSON.stringify({
 						settledDieselPricePerGallon: settledPrice,

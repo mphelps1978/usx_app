@@ -5,14 +5,24 @@ const apiurl = config.apiUrl;
 
 // The register thunk should return the data needed by its fulfilled reducer.
 // The backend for register returns { message: 'User registered', userId: user.id }.
-export const register = createAsyncThunk('auth/register', async ({ username, email, password }) => {
-  const response = await axios.post(`${apiurl}/register`, { username, email, password });
-  return response.data; // Return the whole data object which includes userId
+export const register = createAsyncThunk('auth/register', async ({ username, email, password }, { rejectWithValue }) => {
+  try {
+    const response = await axios.post(`${apiurl}/register`, { username, email, password });
+    return response.data;
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || 'Registration failed';
+    return rejectWithValue(msg);
+  }
 });
 
-export const login = createAsyncThunk('auth/login', async ({ email, password }) => {
-  const response = await axios.post(`${apiurl}/login`, { email, password });
-  return response.data; // Return the full response data
+export const login = createAsyncThunk('auth/login', async ({ email, password }, { rejectWithValue }) => {
+  try {
+    const response = await axios.post(`${apiurl}/login`, { email, password });
+    return response.data;
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || 'Login failed';
+    return rejectWithValue(msg);
+  }
 });
 
 const authSlice = createSlice({
@@ -44,7 +54,7 @@ const authSlice = createSlice({
         // User is now logged in and token is set.
       })
       .addCase(register.rejected, (state, action) => {
-        state.error = action.error.message;
+        state.error = action.payload ?? action.error.message;
       })
       .addCase(login.fulfilled, (state, action) => {
         // action.payload is now the full response data { token: '...', userId: '...' }
@@ -55,7 +65,7 @@ const authSlice = createSlice({
         state.error = null; // Clear any previous login errors
       })
       .addCase(login.rejected, (state, action) => {
-        state.error = action.error.message;
+        state.error = action.payload ?? action.error.message;
       });
   },
 });

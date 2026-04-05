@@ -30,7 +30,9 @@ const Login = () => {
 
 	const handleSubmit = async (e) => {
 		e.preventDefault();
-		const result = await dispatch(login({ email, password }));
+		const result = await dispatch(
+			login({ email: email.trim(), password })
+		);
 		if (login.fulfilled.match(result)) {
 			navigate("/dashboard");
 		}

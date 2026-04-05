@@ -81,8 +81,35 @@ function computeLoadOdometerDerived({ startingOdometer, loadedStartOdometer, end
 
 const app = express();
 
+const defaultAllowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://172.20.10.4:5173',
+  'https://usx-app-ten.vercel.app',
+  'https://www.usx-app-ten.vercel.app',
+  'https://usxapp-production.up.railway.app',
+];
+const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...extraOrigins])];
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (/^https:\/\/.+\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://172.20.10.4:5173', 'https://usx-app-ten.vercel.app', 'https://usxapp-production.up.railway.app'],
+  origin: (origin, callback) => {
+    if (isAllowedCorsOrigin(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS blocked for origin: ${origin || '(none)'}`));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Custom-Header'],
