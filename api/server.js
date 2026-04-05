@@ -84,6 +84,8 @@ const app = express();
 const defaultAllowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
   'http://172.20.10.4:5173',
   'https://usx-app-ten.vercel.app',
   'https://www.usx-app-ten.vercel.app',
@@ -102,13 +104,16 @@ function isAllowedCorsOrigin(origin) {
   return false;
 }
 
+// Use callback(null, false) for denials — callback(Error) invokes Express error middleware and can break CORS/preflight.
 app.use(cors({
   origin: (origin, callback) => {
-    if (isAllowedCorsOrigin(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS blocked for origin: ${origin || '(none)'}`));
+    if (!origin) {
+      return callback(null, true);
     }
+    if (isAllowedCorsOrigin(origin)) {
+      return callback(null, origin);
+    }
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -150,8 +155,14 @@ async function startServer() {
       try {
         const { username, email, password } = req.body;
         if (!password) return res.status(400).json({ message: 'Password is required' });
+        const emailNorm = typeof email === 'string' ? email.trim().toLowerCase() : '';
+        if (!emailNorm) return res.status(400).json({ message: 'Email is required' });
         const hashedPassword = await bcrypt.hash(password, 10); // Hash the password
-        const user = await User.create({ username, email, password: hashedPassword });
+        const user = await User.create({
+          username: typeof username === 'string' ? username.trim() : username,
+          email: emailNorm,
+          password: hashedPassword,
+        });
         // Generate a token for the new user to log them in immediately
         const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
         res.status(201).json({ message: 'User registered', userId: user.id, token: token });
@@ -165,17 +176,26 @@ async function startServer() {
       }
     });
 
-    // Login
+    // Login (case-insensitive email — Postgres string compare is case-sensitive by default)
     app.post('/api/login', async (req, res) => {
       try {
         const { email, password } = req.body;
-        const user = await User.findOne({ where: { email } });
+        const emailInput = typeof email === 'string' ? email.trim() : '';
+        if (!emailInput) {
+          return res.status(400).json({ message: 'Email is required' });
+        }
+        const user = await User.findOne({
+          where: sequelize.where(
+            sequelize.fn('lower', sequelize.col('email')),
+            emailInput.toLowerCase()
+          ),
+        });
         // Compare hashed password
         if (!user || !(await bcrypt.compare(password, user.password))) {
           return res.status(401).json({ message: 'Invalid credentials' });
         }
         const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-        res.json({ token });
+        res.json({ token, userId: user.id });
       } catch (err) {
         console.error('[SERVER] Login error:', err);
         res.status(500).json({ message: 'Server error during login' });

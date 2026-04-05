@@ -18,6 +18,9 @@ export const register = createAsyncThunk('auth/register', async ({ username, ema
 export const login = createAsyncThunk('auth/login', async ({ email, password }, { rejectWithValue }) => {
   try {
     const response = await axios.post(`${apiurl}/login`, { email, password });
+    if (!response.data?.token) {
+      return rejectWithValue('Invalid response from server (missing token).');
+    }
     return response.data;
   } catch (err) {
     const msg = err.response?.data?.message || err.message || 'Login failed';
@@ -44,6 +47,12 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      .addCase(login.pending, (state) => {
+        state.error = null;
+      })
+      .addCase(register.pending, (state) => {
+        state.error = null;
+      })
       .addCase(register.fulfilled, (state, action) => {
         // action.payload is now { message: '...', userId: '...', token: '...' }
         state.userId = action.payload.userId;
@@ -57,12 +66,11 @@ const authSlice = createSlice({
         state.error = action.payload ?? action.error.message;
       })
       .addCase(login.fulfilled, (state, action) => {
-        // action.payload is now the full response data { token: '...', userId: '...' }
         state.token = action.payload.token;
-        state.userId = action.payload.userId;
+        state.userId = action.payload.userId ?? null;
         localStorage.setItem('authToken', action.payload.token);
         axios.defaults.headers.common['Authorization'] = `Bearer ${action.payload.token}`;
-        state.error = null; // Clear any previous login errors
+        state.error = null;
       })
       .addCase(login.rejected, (state, action) => {
         state.error = action.payload ?? action.error.message;
