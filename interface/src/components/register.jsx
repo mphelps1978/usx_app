@@ -1,4 +1,4 @@
-import { React, useState } from "react";
+import React, { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { register } from "../store/slices/authSlice";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
@@ -12,12 +12,17 @@ import {
 	Button,
 	Link,
 	Alert,
+	InputAdornment,
+	IconButton,
 } from "@mui/material";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
 
 function Register() {
 	const [username, setUsername] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [showPassword, setShowPassword] = useState(false);
 	const dispatch = useDispatch();
 	const { error } = useSelector((state) => state.auth || {}); // Ensure auth exists
 	const navigate = useNavigate();
@@ -98,11 +103,26 @@ function Register() {
 							fullWidth
 							name="password"
 							label="Password"
-							type="password"
+							type={showPassword ? "text" : "password"}
 							id="password"
 							autoComplete="new-password"
 							value={password}
 							onChange={(e) => setPassword(e.target.value)}
+							InputProps={{
+								endAdornment: (
+									<InputAdornment position="end">
+										<IconButton
+											aria-label={
+												showPassword ? "hide password" : "show password"
+											}
+											onClick={() => setShowPassword((v) => !v)}
+											edge="end"
+										>
+											{showPassword ? <VisibilityOff /> : <Visibility />}
+										</IconButton>
+									</InputAdornment>
+								),
+							}}
 						/>
 						<Button
 							type="submit"
