@@ -152,6 +152,8 @@ function FuelStops() {
 			costDieselPurchased: fuelStop.totalDieselCost,
 			totalDefCost: fuelStop.totalDefCost,
 			totalFuelStopCost: fuelStop.totalFuelStop,
+			odometerReading:
+				fuelStop.odometerReading != null ? fuelStop.odometerReading : "",
 		});
 		setIsModalOpen(true);
 	};
@@ -164,6 +166,16 @@ function FuelStops() {
 
 	const handleSubmitModal = async (e) => {
 		e.preventDefault();
+		let odometerReading = null;
+		if (
+			formData.odometerReading !== undefined &&
+			formData.odometerReading !== null &&
+			String(formData.odometerReading).trim() !== ""
+		) {
+			const parsed = parseFloat(formData.odometerReading);
+			odometerReading = Number.isNaN(parsed) ? null : parsed;
+		}
+
 		const payload = {
 			proNumber: formData.proNumber,
 			dateOfStop: formData.dateOfStop
@@ -181,6 +193,7 @@ function FuelStops() {
 				: null,
 			fuelCardUsed: formData.fuelCardUsed || false,
 			discountEligible: formData.discountEligible || false,
+			odometerReading,
 		};
 
 		if (isEditing) {

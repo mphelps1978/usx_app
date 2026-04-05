@@ -71,6 +71,42 @@ const formatDateForInput = (dateString) => {
 	}
 };
 
+/** Parse odometer input; empty → null */
+function parseOdometerField(val) {
+	if (val === undefined || val === null || String(val).trim() === "") return null;
+	const n = parseFloat(val);
+	return Number.isNaN(n) ? null : n;
+}
+
+/** Match server rules: three readings → deadhead / loaded / total miles, or nulls if incomplete/invalid order */
+function computeClientOdometerDerived(startingOdometer, loadedStartOdometer, endingOdometer) {
+	const s = parseOdometerField(startingOdometer);
+	const l = parseOdometerField(loadedStartOdometer);
+	const e = parseOdometerField(endingOdometer);
+	if (s === null || l === null || e === null) {
+		return {
+			actualDeadheadMiles: null,
+			actualLoadedMiles: null,
+			actualMiles: null,
+			invalidOrder: false,
+		};
+	}
+	if (!(s < l && l < e)) {
+		return {
+			actualDeadheadMiles: null,
+			actualLoadedMiles: null,
+			actualMiles: null,
+			invalidOrder: true,
+		};
+	}
+	return {
+		actualDeadheadMiles: l - s,
+		actualLoadedMiles: e - l,
+		actualMiles: e - s,
+		invalidOrder: false,
+	};
+}
+
 // Helper function to format date strings for display
 const formatDateForDisplay = (dateString, defaultText = "N/A") => {
 	if (!dateString || String(dateString).trim() === "") return defaultText;
@@ -296,6 +332,26 @@ function Loads() {
 		};
 	}, [formData, userSettings, allFuelStops]);
 
+	const odometerDerived = useMemo(
+		() =>
+			computeClientOdometerDerived(
+				formData.startingOdometer,
+				formData.loadedStartOdometer,
+				formData.endingOdometer
+			),
+		[
+			formData.startingOdometer,
+			formData.loadedStartOdometer,
+			formData.endingOdometer,
+		]
+	);
+
+	const isFormActiveLoad =
+		!formData.dateDelivered || String(formData.dateDelivered).trim() === "";
+	const isFormDelivered =
+		Boolean(formData.dateDelivered) &&
+		String(formData.dateDelivered).trim() !== "";
+
 	const handleSubmitModal = async (e) => {
 		e.preventDefault();
 		setModalError(null);
@@ -320,6 +376,32 @@ function Loads() {
 			return;
 		}
 
+		const startOd = parseOdometerField(formData.startingOdometer);
+		if (isAttemptingActive && startOd === null) {
+			setModalError("Starting odometer is required for an active load.");
+			return;
+		}
+
+		const hasDeliveryDate =
+			Boolean(formData.dateDelivered) &&
+			String(formData.dateDelivered).trim() !== "";
+		if (hasDeliveryDate) {
+			const pickOd = parseOdometerField(formData.loadedStartOdometer);
+			const endOd = parseOdometerField(formData.endingOdometer);
+			if (startOd === null || pickOd === null || endOd === null) {
+				setModalError(
+					"Delivered loads require starting odometer, odometer at pickup (loaded start), and ending odometer."
+				);
+				return;
+			}
+			if (!(startOd < pickOd && pickOd < endOd)) {
+				setModalError(
+					"Odometer readings must satisfy starting < pickup (loaded start) < ending."
+				);
+				return;
+			}
+		}
+
 		// Calculate individual deductions for database storage
 		const currentTotalMiles =
 			(parseFloat(formData.deadheadMiles) || 0) +
@@ -340,6 +422,12 @@ function Loads() {
 			deadheadMiles: parseFloat(formData.deadheadMiles) || 0,
 			loadedMiles: parseFloat(formData.loadedMiles) || 0,
 			weight: parseFloat(formData.weight) || 0,
+			startingOdometer: startOd,
+			loadedStartOdometer: parseOdometerField(formData.loadedStartOdometer),
+			endingOdometer: parseOdometerField(formData.endingOdometer),
+			actualDeadheadMiles: odometerDerived.actualDeadheadMiles,
+			actualLoadedMiles: odometerDerived.actualLoadedMiles,
+			actualMiles: odometerDerived.actualMiles,
 			driverPayType: userSettings?.driverPayType,
 			linehaul:
 				userSettings?.driverPayType === "percentage"
@@ -365,18 +453,27 @@ function Loads() {
 			mrpFee: mrpFeeDeduction,
 		};
 
-		if (
-			payload.id ||
-			(payload.proNumber &&
-				loadsForTable.some((load) => load.proNumber === payload.proNumber))
-		) {
-			await dispatch(
-				updateLoad({ proNumber: payload.proNumber, load: payload })
-			);
-		} else {
-			await dispatch(addLoad(payload));
+		try {
+			if (
+				payload.id ||
+				(payload.proNumber &&
+					loadsForTable.some((load) => load.proNumber === payload.proNumber))
+			) {
+				await dispatch(
+					updateLoad({ proNumber: payload.proNumber, load: payload })
+				).unwrap();
+			} else {
+				const { id, createdAt, updatedAt, ...createPayload } = payload;
+				await dispatch(addLoad(createPayload)).unwrap();
+			}
+			handleCloseModal();
+		} catch (err) {
+			const msg =
+				typeof err === "string"
+					? err
+					: err?.message || "Could not save load. Please try again.";
+			setModalError(msg);
 		}
-		handleCloseModal();
 	};
 
 	const handleDelete = async (proNumber) => {
@@ -967,11 +1064,35 @@ function Loads() {
 								label="Starting Odometer"
 								type="number"
 								name="startingOdometer"
-								value={formData.startingOdometer || ""}
+								value={formData.startingOdometer ?? ""}
 								onChange={handleInputChange}
 								fullWidth
 								margin="dense"
+								required={isFormActiveLoad}
 								inputProps={{ step: "1" }}
+								helperText={
+									isFormActiveLoad
+										? "Required before dispatch (tax / odometer tracking)"
+										: ""
+								}
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Odometer at pickup (loaded start)"
+								type="number"
+								name="loadedStartOdometer"
+								value={formData.loadedStartOdometer ?? ""}
+								onChange={handleInputChange}
+								fullWidth
+								margin="dense"
+								required={isFormDelivered}
+								inputProps={{ step: "1" }}
+								helperText={
+									isFormDelivered
+										? "Required when delivery date is set"
+										: "After deadhead, before loaded miles"
+								}
 							/>
 						</Grid>
 						<Grid item xs={12} sm={6} md={3}>
@@ -979,24 +1100,59 @@ function Loads() {
 								label="Ending Odometer"
 								type="number"
 								name="endingOdometer"
-								value={formData.endingOdometer || ""}
+								value={formData.endingOdometer ?? ""}
 								onChange={handleInputChange}
 								fullWidth
 								margin="dense"
+								required={isFormDelivered}
 								inputProps={{ step: "1" }}
+								helperText={
+									isFormDelivered ? "Required when delivery date is set" : ""
+								}
 							/>
 						</Grid>
 						<Grid item xs={12} sm={6} md={3}>
 							<TextField
-								label="Actual Miles"
-								type="number"
-								name="actualMiles"
-								value={formData.actualMiles || ""}
-								onChange={handleInputChange}
+								label="Actual deadhead miles"
+								value={
+									odometerDerived.actualDeadheadMiles != null
+										? String(odometerDerived.actualDeadheadMiles)
+										: ""
+								}
 								fullWidth
 								margin="dense"
-								inputProps={{ step: "0.01" }}
 								disabled
+								helperText="Pickup − start (tax)"
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Actual loaded miles"
+								value={
+									odometerDerived.actualLoadedMiles != null
+										? String(odometerDerived.actualLoadedMiles)
+										: ""
+								}
+								fullWidth
+								margin="dense"
+								disabled
+								helperText="End − pickup"
+							/>
+						</Grid>
+						<Grid item xs={12} sm={6} md={3}>
+							<TextField
+								label="Actual total miles"
+								value={
+									odometerDerived.actualMiles != null
+										? String(odometerDerived.actualMiles)
+										: odometerDerived.invalidOrder
+											? "Check order"
+											: ""
+								}
+								fullWidth
+								margin="dense"
+								disabled
+								helperText="End − start"
 							/>
 						</Grid>
 					</Grid>

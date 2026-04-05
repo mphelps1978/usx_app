@@ -19,6 +19,9 @@ const migrations = [
   `ALTER TABLE loads ADD COLUMN startingOdometer INTEGER`,
   `ALTER TABLE loads ADD COLUMN endingOdometer INTEGER`,
   `ALTER TABLE loads ADD COLUMN actualMiles INTEGER`,
+  `ALTER TABLE loads ADD COLUMN loadedStartOdometer REAL`,
+  `ALTER TABLE loads ADD COLUMN actualDeadheadMiles REAL`,
+  `ALTER TABLE loads ADD COLUMN actualLoadedMiles REAL`,
 
   // Add columns to fuelStops table
   `ALTER TABLE fuelStops ADD COLUMN previousOdometer INTEGER`,

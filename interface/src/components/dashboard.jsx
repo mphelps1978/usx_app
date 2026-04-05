@@ -78,6 +78,9 @@ function Dashboard() {
 		(state) => state.fuelStops || { list: [] }
 	);
 
+	const activeLoad = loads.find((load) => !load.dateDelivered);
+	const [completeLoadError, setCompleteLoadError] = useState(null);
+
 	useEffect(() => {
 		dispatch(fetchLoads());
 		dispatch(fetchFuelStops());
@@ -99,45 +102,81 @@ function Dashboard() {
 	};
 
 	const handleCompleteLoad = async () => {
-		if (activeLoad && activeLoad.proNumber) {
-			const currentDate = new Date();
-			const year = currentDate.getFullYear();
-			const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
-			const day = currentDate.getDate().toString().padStart(2, "0");
-			const formattedDate = `${year}-${month}-${day}`;
+		setCompleteLoadError(null);
+		if (!activeLoad?.proNumber) return;
+		const currentDate = new Date();
+		const year = currentDate.getFullYear();
+		const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
+		const day = currentDate.getDate().toString().padStart(2, "0");
+		const formattedDate = `${year}-${month}-${day}`;
 
-			const updatedLoadData = {
-				...activeLoad,
-				dateDelivered: formattedDate,
-			};
+		const updatedLoadData = {
+			...activeLoad,
+			dateDelivered: formattedDate,
+		};
+		try {
 			await dispatch(
 				updateLoad({ proNumber: activeLoad.proNumber, load: updatedLoadData })
-			);
+			).unwrap();
+		} catch (err) {
+			const msg =
+				typeof err === "string"
+					? err
+					: err?.message ||
+						"Could not complete load. Enter odometers on Loads, then set delivery date there.";
+			setCompleteLoadError(msg);
 		}
 	};
 
-	// Calculate total deadhead and loaded miles from actual loads data
-	const totalDeadheadMiles = loads.reduce(
-		(sum, load) => sum + (parseFloat(load.deadheadMiles) || 0),
-		0
-	);
-	const totalLoadedMiles = loads.reduce(
-		(sum, load) => sum + (parseFloat(load.loadedMiles) || 0),
-		0
-	);
+	// Odometer-based tax miles: only delivered loads with server-derived actual splits
+	const taxMilesSummary = useMemo(() => {
+		const deliveredLoads = loads.filter((l) => l.dateDelivered);
+		const qualifying = deliveredLoads.filter((l) => {
+			const dh = l.actualDeadheadMiles;
+			const ld = l.actualLoadedMiles;
+			if (dh == null || ld == null) return false;
+			const dhn = parseFloat(dh);
+			const ldn = parseFloat(ld);
+			return !Number.isNaN(dhn) && !Number.isNaN(ldn);
+		});
+		const totalDeadheadMiles = qualifying.reduce(
+			(s, l) => s + (parseFloat(l.actualDeadheadMiles) || 0),
+			0
+		);
+		const totalLoadedMiles = qualifying.reduce(
+			(s, l) => s + (parseFloat(l.actualLoadedMiles) || 0),
+			0
+		);
+		return {
+			totalDeadheadMiles,
+			totalLoadedMiles,
+			qualifyingCount: qualifying.length,
+			omittedDeliveredCount: deliveredLoads.length - qualifying.length,
+			deliveredCount: deliveredLoads.length,
+		};
+	}, [loads]);
 
-	const milesData = {
-		labels: ["Deadhead Miles", "Loaded Miles"],
-		datasets: [
-			{
-				label: "Miles",
-				data: [totalDeadheadMiles, totalLoadedMiles], // Using actual data
-				backgroundColor: ["rgba(255, 99, 132, 0.2)", "rgba(54, 162, 235, 0.2)"],
-				borderColor: ["rgba(255, 99, 132, 1)", "rgba(54, 162, 235, 1)"],
-				borderWidth: 1,
-			},
-		],
-	};
+	const milesData = useMemo(
+		() => ({
+			labels: ["Actual deadhead (odometer)", "Actual loaded (odometer)"],
+			datasets: [
+				{
+					label: "Miles",
+					data: [
+						taxMilesSummary.totalDeadheadMiles,
+						taxMilesSummary.totalLoadedMiles,
+					],
+					backgroundColor: [
+						"rgba(255, 99, 132, 0.2)",
+						"rgba(54, 162, 235, 0.2)",
+					],
+					borderColor: ["rgba(255, 99, 132, 1)", "rgba(54, 162, 235, 1)"],
+					borderWidth: 1,
+				},
+			],
+		}),
+		[taxMilesSummary]
+	);
 
 	// Calculate Net Revenue by Month
 	const monthlyRevenue = {};
@@ -305,6 +344,8 @@ function Dashboard() {
 		},
 	};
 
+	const pieSum =
+		taxMilesSummary.totalDeadheadMiles + taxMilesSummary.totalLoadedMiles;
 	const pieChartOptions = {
 		...baseChartOptions,
 		plugins: {
@@ -315,13 +356,13 @@ function Dashboard() {
 						const data = chart.data;
 						if (data.labels.length && data.datasets.length) {
 							return data.labels.map((label, i) => {
-								const meta = chart.getDatasetMeta(0); // Pie chart usually has one dataset
+								const meta = chart.getDatasetMeta(0);
 								const style = meta.controller.getStyle(i);
 								const value = data.datasets[0].data[i];
-								const percentage = (
-									(value / (totalDeadheadMiles + totalLoadedMiles)) *
-									100
-								).toFixed(1);
+								const percentage =
+									pieSum > 0
+										? ((value / pieSum) * 100).toFixed(1)
+										: "0.0";
 
 								return {
 									text: `${label}: ${value} miles (${percentage}%)`,
@@ -343,97 +384,91 @@ function Dashboard() {
 		},
 	};
 
-	// Calculate MPG statistics
-	const calculateMPGStats = () => {
-		// Calculate total actual miles from completed loads
-		const totalActualMiles = loads
-			.filter(
-				(load) =>
-					load.dateDelivered && load.endingOdometer && load.startingOdometer
-			)
-			.reduce((sum, load) => {
-				const actualMiles =
-					(load.endingOdometer || 0) - (load.startingOdometer || 0);
-				return sum + Math.max(0, actualMiles); // Ensure non-negative
-			}, 0);
-
-		// Calculate total gallons from all fuel stops
-		const totalGallons = fuelStops.reduce((sum, stop) => {
-			return sum + (parseFloat(stop.gallonsDieselPurchased) || 0);
-		}, 0);
-
-		// Calculate overall MPG
-		const overallMpg = totalGallons > 0 ? totalActualMiles / totalGallons : 0;
-
-		return {
-			totalMiles: Math.round(totalActualMiles),
-			totalGallons: Math.round(totalGallons * 100) / 100,
-			overallMpg: Math.round(overallMpg * 100) / 100,
-		};
-	};
-
-	const mpgStats = calculateMPGStats();
-
-	// Generate MPG trend chart data - by settlement week, last 2 months
-	const generateMPGChartData = () => {
+	/** Same 2-month fuel window as the MPG line chart: weighted actual MPG from per-fill calculatedMpg. */
+	const mpgStats = useMemo(() => {
 		const sortedStops = [...fuelStops].sort(
 			(a, b) => new Date(a.dateOfStop) - new Date(b.dateOfStop)
 		);
-
-		if (sortedStops.length === 0) return { labels: [], datasets: [] };
-
-		// Anchor 2-month window to the latest data point, not today,
-		// so demo/future-dated data still gets filtered correctly.
+		if (sortedStops.length === 0) {
+			return {
+				segmentMiles: 0,
+				totalGallons: 0,
+				overallMpg: 0,
+				fillCount: 0,
+			};
+		}
 		const latestDate = new Date(sortedStops[sortedStops.length - 1].dateOfStop);
 		const cutoff = new Date(latestDate);
 		cutoff.setMonth(cutoff.getMonth() - 2);
+		const recentStops = sortedStops.filter(
+			(stop) => new Date(stop.dateOfStop) >= cutoff
+		);
+		let weightedMiles = 0;
+		let totalGallons = 0;
+		let fillCount = 0;
+		recentStops.forEach((stop) => {
+			const mpg = parseFloat(stop.calculatedMpg);
+			const gal = parseFloat(stop.gallonsDieselPurchased) || 0;
+			if (
+				stop.calculatedMpg != null &&
+				!Number.isNaN(mpg) &&
+				gal > 0
+			) {
+				weightedMiles += mpg * gal;
+				totalGallons += gal;
+				fillCount += 1;
+			}
+		});
+		const overallMpg =
+			totalGallons > 0 ? weightedMiles / totalGallons : 0;
+		return {
+			segmentMiles: Math.round(weightedMiles),
+			totalGallons: Math.round(totalGallons * 100) / 100,
+			overallMpg: Math.round(overallMpg * 100) / 100,
+			fillCount,
+		};
+	}, [fuelStops]);
 
+	const mpgChartData = useMemo(() => {
+		const sortedStops = [...fuelStops].sort(
+			(a, b) => new Date(a.dateOfStop) - new Date(b.dateOfStop)
+		);
+		if (sortedStops.length === 0) return { labels: [], datasets: [] };
+
+		const latestDate = new Date(sortedStops[sortedStops.length - 1].dateOfStop);
+		const cutoff = new Date(latestDate);
+		cutoff.setMonth(cutoff.getMonth() - 2);
 		const recentStops = sortedStops.filter(
 			(stop) => new Date(stop.dateOfStop) >= cutoff
 		);
 
-		// Group by settlement week (closing Wednesday)
 		const weeklyData = {};
 		recentStops.forEach((stop) => {
-			if (stop.odometerReading && stop.gallonsDieselPurchased) {
-				const stopDate = new Date(stop.dateOfStop);
-				const weekKey = getSettlementWeekKey(stopDate);
-
-				if (!weeklyData[weekKey]) {
-					weeklyData[weekKey] = {
-						totalGallons: 0,
-						firstOdometer: null,
-						lastOdometer: null,
-					};
-				}
-
-				weeklyData[weekKey].totalGallons +=
-					parseFloat(stop.gallonsDieselPurchased) || 0;
-
-				const odometer = parseFloat(stop.odometerReading) || 0;
-				if (weeklyData[weekKey].firstOdometer === null) {
-					weeklyData[weekKey].firstOdometer = odometer;
-				}
-				weeklyData[weekKey].lastOdometer = odometer;
+			const mpg = parseFloat(stop.calculatedMpg);
+			const gal = parseFloat(stop.gallonsDieselPurchased) || 0;
+			if (stop.calculatedMpg == null || Number.isNaN(mpg) || gal <= 0) {
+				return;
 			}
+			const stopDate = new Date(stop.dateOfStop);
+			const weekKey = getSettlementWeekKey(stopDate);
+			if (!weeklyData[weekKey]) {
+				weeklyData[weekKey] = { weightedMiles: 0, totalGallons: 0 };
+			}
+			weeklyData[weekKey].weightedMiles += mpg * gal;
+			weeklyData[weekKey].totalGallons += gal;
 		});
 
 		const labels = [];
 		const data = [];
-
 		Object.keys(weeklyData)
 			.sort()
 			.forEach((weekKey) => {
-				const weekData = weeklyData[weekKey];
-				const totalMiles =
-					weekData.firstOdometer !== null && weekData.lastOdometer !== null
-						? weekData.lastOdometer - weekData.firstOdometer
-						: 0;
-
-				if (weekData.totalGallons > 0 && totalMiles > 0) {
-					// Label is MM-DD of the closing Wednesday
+				const w = weeklyData[weekKey];
+				if (w.totalGallons > 0) {
 					labels.push(weekKey.slice(5));
-					data.push(Math.round((totalMiles / weekData.totalGallons) * 100) / 100);
+					data.push(
+						Math.round((w.weightedMiles / w.totalGallons) * 100) / 100
+					);
 				}
 			});
 
@@ -441,7 +476,7 @@ function Dashboard() {
 			labels,
 			datasets: [
 				{
-					label: "Weekly MPG",
+					label: "Actual weekly MPG (fuel entries)",
 					data,
 					borderColor: "rgba(75, 192, 192, 1)",
 					backgroundColor: "rgba(75, 192, 192, 0.2)",
@@ -455,9 +490,7 @@ function Dashboard() {
 				},
 			],
 		};
-	};
-
-	const mpgChartData = generateMPGChartData();
+	}, [fuelStops]);
 
 	const mpgChartOptions = {
 		responsive: true,
@@ -476,7 +509,7 @@ function Dashboard() {
 			},
 			title: {
 				display: true,
-				text: "Fuel Efficiency Tracking",
+				text: "Actual fuel MPG (last ~2 months, from fill-ups)",
 				font: {
 					size: 16,
 					weight: "bold",
@@ -496,7 +529,7 @@ function Dashboard() {
 				cornerRadius: 8,
 				callbacks: {
 					label: function (context) {
-						return `MPG: ${context.parsed.y}`;
+						return `Actual MPG: ${context.parsed.y}`;
 					},
 				},
 			},
@@ -533,8 +566,6 @@ function Dashboard() {
 			},
 		},
 	};
-
-	const activeLoad = loads.find((load) => !load.dateDelivered);
 
 	// Current settlement period: Thu → Wed (closes Wednesday)
 	const { settlementLoads, settlementTotal, periodLabel } = useMemo(() => {
@@ -578,6 +609,12 @@ function Dashboard() {
 				Projected Settlement Revenue ({periodLabel}):{" "}
 				<strong>${settlementTotal.toFixed(2)}</strong>
 			</Typography>
+
+			{completeLoadError && (
+				<Alert severity="warning" sx={{ mb: 2, maxWidth: 720, mx: "auto" }}>
+					{completeLoadError}
+				</Alert>
+			)}
 
 			{activeLoad && (
 				<Box
@@ -625,7 +662,7 @@ function Dashboard() {
 						color="success"
 						size="small"
 						sx={{ ml: 1 }}
-						title="Mark as Delivered"
+						title="Mark as Delivered (requires odometers on Loads)"
 					>
 						<CheckCircleOutlineIcon />
 					</IconButton>
@@ -671,11 +708,34 @@ function Dashboard() {
 						}}
 					>
 						<Typography variant="h6" gutterBottom component="h3">
-							Deadhead vs Loaded Miles
+							Actual miles (odometer, tax)
 						</Typography>
-						<Box sx={{ flexGrow: 1, position: "relative" }}>
-							<Pie data={milesData} options={pieChartOptions} />
-						</Box>
+						{taxMilesSummary.qualifyingCount === 0 ? (
+							<Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+								Enter starting, pickup, and ending odometer on delivered loads
+								(Loads page) to see deadhead vs loaded splits.
+							</Typography>
+						) : (
+							<>
+								{taxMilesSummary.omittedDeliveredCount > 0 && (
+									<Typography
+										variant="caption"
+										color="text.secondary"
+										display="block"
+										sx={{ mb: 1 }}
+									>
+										Based on {taxMilesSummary.qualifyingCount} load
+										{taxMilesSummary.qualifyingCount !== 1 ? "s" : ""} with full
+										odometer data; {taxMilesSummary.omittedDeliveredCount} delivered
+										load{taxMilesSummary.omittedDeliveredCount !== 1 ? "s" : ""}{" "}
+										omitted.
+									</Typography>
+								)}
+								<Box sx={{ flexGrow: 1, position: "relative" }}>
+									<Pie data={milesData} options={pieChartOptions} />
+								</Box>
+							</>
+						)}
 					</Paper>
 				</Grid>
 				<Grid item xs={12} md={6} lg={4}>
@@ -728,7 +788,14 @@ function Dashboard() {
 						}}
 					>
 						<Typography variant="h6" gutterBottom component="h3">
-							Fuel Efficiency (MPG)
+							Actual fuel MPG
+						</Typography>
+						<Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+							Last ~2 months, gallons-weighted from fill-up MPG (odometer-based
+							segments). {mpgStats.fillCount} fill-up
+							{mpgStats.fillCount !== 1 ? "s" : ""} with MPG; blended{" "}
+							<strong>{mpgStats.overallMpg || "—"}</strong> MPG,{" "}
+							{mpgStats.totalGallons || "—"} gal.
 						</Typography>
 						<Box sx={{ flexGrow: 1, position: "relative" }}>
 							<Line data={mpgChartData} options={mpgChartOptions} />

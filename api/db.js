@@ -46,6 +46,29 @@ const sequelize = new Sequelize(dbUrl, {
   }),
 });
 
+/**
+ * Re-align SERIAL/identity sequences with MAX(id) after manual imports, deletes, or restores.
+ * Prevents: duplicate key value violates unique constraint "Loads_pkey" on INSERT ... DEFAULT id.
+ */
+async function syncPostgresIdSequences(sequelize) {
+  const tables = ['Users', 'Loads', 'FuelStops', 'UserSettings', 'BugReports'];
+  for (const table of tables) {
+    try {
+      const [rows] = await sequelize.query(
+        `SELECT COALESCE(MAX(id), 0) AS max_id FROM "${table}"`
+      );
+      const maxId = Number(rows[0]?.max_id ?? 0);
+      await sequelize.query(
+        `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), $1, true)`,
+        { bind: [maxId] }
+      );
+      console.log(`[DB] Synced id sequence for "${table}" to max id ${maxId}`);
+    } catch (e) {
+      console.warn(`[DB] Skipped id sequence sync for "${table}":`, e.message);
+    }
+  }
+}
+
 // Declare model variables. They will be assigned after successful DB authentication.
 let User, Loads, FuelStops, UserSettings, BugReport;
 
@@ -97,6 +120,7 @@ async function initializeDatabaseAndModels() {
       // For PostgreSQL, use alter for schema updates
       await sequelize.sync({ alter: true });
       console.log('[DB] PostgreSQL tables synced successfully!');
+      await syncPostgresIdSequences(sequelize);
     }
 
     // Return the initialized components so they can be used after awaiting this function.

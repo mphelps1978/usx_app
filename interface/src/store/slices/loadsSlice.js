@@ -11,20 +11,30 @@ export const fetchLoads = createAsyncThunk('/loads/fetchLoads', async (_, { getS
   return response.data
 })
 
-export const addLoad = createAsyncThunk('/loads/addLoad', async (load, { getState }) => {
-  const { token } = getState().auth
-  const response = await axios.post(`${apiurl}/loads`, load, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  return response.data
+export const addLoad = createAsyncThunk('/loads/addLoad', async (load, { getState, rejectWithValue }) => {
+  try {
+    const { token } = getState().auth
+    const response = await axios.post(`${apiurl}/loads`, load, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return response.data
+  } catch (err) {
+    const message = err.response?.data?.message || err.message || 'Failed to add load'
+    return rejectWithValue(message)
+  }
 })
 
-export const updateLoad = createAsyncThunk('/loads/updateLoad', async ({ proNumber, load }, { getState }) => {
-  const { token } = getState().auth
-  const response = await axios.put(`${apiurl}/loads/${proNumber}`, load, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  return response.data
+export const updateLoad = createAsyncThunk('/loads/updateLoad', async ({ proNumber, load }, { getState, rejectWithValue }) => {
+  try {
+    const { token } = getState().auth
+    const response = await axios.put(`${apiurl}/loads/${proNumber}`, load, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return response.data
+  } catch (err) {
+    const message = err.response?.data?.message || err.message || 'Failed to update load'
+    return rejectWithValue(message)
+  }
 })
 
 export const deleteLoad = createAsyncThunk('loads/deleteLoad', async (proNumber, { getState }) => {
@@ -71,7 +81,7 @@ const loadSlice = createSlice({
       })
       .addCase(addLoad.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message;
+        state.error = action.payload ?? action.error.message;
       })
       // updateLoad
       .addCase(updateLoad.pending, (state) => {
@@ -85,7 +95,7 @@ const loadSlice = createSlice({
       })
       .addCase(updateLoad.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.error.message;
+        state.error = action.payload ?? action.error.message;
       })
       // deleteLoad
       .addCase(deleteLoad.pending, (state) => {

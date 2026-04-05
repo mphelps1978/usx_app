@@ -119,9 +119,9 @@
 
 ## 7. Known Bugs to Fix
 
-- **Duplicate "Loaded Miles" field** in loads.jsx modal (appears twice)
-- **MPG server-side calc broken** — `api/server.js` ~line 384: `id: { [Op.lt]: 0 }` never matches; previous fuel stop lookup always returns null
-- **Debug console.log statements** left in loads.jsx (component render, useMemo, table row calculations)
+- ~~**Duplicate "Loaded Miles" field**~~ — Verified: only one `loadedMiles` field in the Loads modal (no change needed).
+- ~~**MPG server-side calc**~~ — Fixed: prior stop is chosen by highest `odometerReading` less than the current reading (not broken `id`/createdAt ordering). Fuel stop create/update payloads now include `odometerReading` from the UI.
+- ~~**Debug console.log statements**~~ — Removed from `fuelStopsSlice.js` (debug logging that matched this intent; none remained in `loads.jsx`).
 
 ---
 

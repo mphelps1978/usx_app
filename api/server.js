@@ -9,6 +9,76 @@ const fs = require('fs'); // For file system logging (optional)
 const dbPromise = require('./db');
 const { Op } = require('sequelize'); // Sequelize Op can be required directly
 
+/**
+ * MPG for a fill-up: compare to the user's prior stop by odometer (largest reading
+ * strictly less than the current reading). Excludes excludeFuelStopId when recalculating an update.
+ */
+async function computeMpgFromPreviousStop(FuelStops, { userId, currentOdometer, excludeFuelStopId, gallonsDiesel }) {
+  let previousOdometer = null;
+  let calculatedMpg = null;
+  const co = parseFloat(currentOdometer);
+  if (currentOdometer === undefined || currentOdometer === null || currentOdometer === '' || Number.isNaN(co)) {
+    return { previousOdometer, calculatedMpg };
+  }
+  const andConds = [
+    { odometerReading: { [Op.ne]: null } },
+    { odometerReading: { [Op.lt]: co } },
+  ];
+  if (excludeFuelStopId != null) {
+    andConds.push({ id: { [Op.ne]: excludeFuelStopId } });
+  }
+  const previousFuelStop = await FuelStops.findOne({
+    where: {
+      userId,
+      [Op.and]: andConds,
+    },
+    order: [['odometerReading', 'DESC']],
+  });
+  if (previousFuelStop && previousFuelStop.odometerReading != null) {
+    previousOdometer = previousFuelStop.odometerReading;
+    const milesSinceLastFillup = co - previousOdometer;
+    const gdp = parseFloat(gallonsDiesel);
+    if (gdp > 0 && milesSinceLastFillup > 0) {
+      calculatedMpg = parseFloat((milesSinceLastFillup / gdp).toFixed(2));
+    }
+  }
+  return { previousOdometer, calculatedMpg };
+}
+
+function toNullableNumberLoad(val) {
+  if (val === undefined || val === null || val === '') return null;
+  const n = parseFloat(val);
+  return Number.isNaN(n) ? null : n;
+}
+
+/** Tax/odometer splits; all three readings required for derived miles. */
+function computeLoadOdometerDerived({ startingOdometer, loadedStartOdometer, endingOdometer }) {
+  const s = toNullableNumberLoad(startingOdometer);
+  const l = toNullableNumberLoad(loadedStartOdometer);
+  const e = toNullableNumberLoad(endingOdometer);
+  const base = {
+    startingOdometer: s,
+    loadedStartOdometer: l,
+    endingOdometer: e,
+    actualDeadheadMiles: null,
+    actualLoadedMiles: null,
+    actualMiles: null,
+    invalidOrder: false,
+  };
+  if (s === null || l === null || e === null) {
+    return base;
+  }
+  if (!(s < l && l < e)) {
+    return { ...base, invalidOrder: true };
+  }
+  return {
+    ...base,
+    actualDeadheadMiles: l - s,
+    actualLoadedMiles: e - l,
+    actualMiles: e - s,
+  };
+}
+
 const app = express();
 
 app.use(cors({
@@ -128,9 +198,6 @@ async function startServer() {
           maintenanceReserve,
           bondDeposit,
           mrpFee,
-          startingOdometer: restOfBody.startingOdometer || null,
-          endingOdometer: restOfBody.endingOdometer || null,
-          actualMiles: restOfBody.actualMiles || null,
           // fuelCost: 0, // Initialize fuelCost if it's not coming from frontend but required by model
         };
 
@@ -181,6 +248,45 @@ async function startServer() {
           }
         }
 
+        const odoCreate = computeLoadOdometerDerived({
+          startingOdometer: loadData.startingOdometer,
+          loadedStartOdometer: loadData.loadedStartOdometer,
+          endingOdometer: loadData.endingOdometer,
+        });
+        loadData.startingOdometer = odoCreate.startingOdometer;
+        loadData.loadedStartOdometer = odoCreate.loadedStartOdometer;
+        loadData.endingOdometer = odoCreate.endingOdometer;
+        loadData.actualDeadheadMiles = odoCreate.actualDeadheadMiles;
+        loadData.actualLoadedMiles = odoCreate.actualLoadedMiles;
+        loadData.actualMiles = odoCreate.actualMiles;
+
+        if (!loadData.dateDelivered && odoCreate.startingOdometer === null) {
+          return res.status(400).json({ message: 'Starting odometer is required for an active load.' });
+        }
+
+        if (loadData.dateDelivered) {
+          if (
+            odoCreate.startingOdometer === null ||
+            odoCreate.loadedStartOdometer === null ||
+            odoCreate.endingOdometer === null
+          ) {
+            return res.status(400).json({
+              message:
+                'Delivered loads require starting odometer, odometer at pickup (loaded start), and ending odometer.',
+            });
+          }
+          if (odoCreate.invalidOrder) {
+            return res.status(400).json({
+              message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
+            });
+          }
+        }
+
+        // Never let the client set PK or Sequelize timestamps on create (avoids pkey conflicts / bad merges).
+        delete loadData.id;
+        delete loadData.createdAt;
+        delete loadData.updatedAt;
+
         // console.log('[SERVER] Creating load with data:', loadData);
         const load = await Loads.create(loadData);
         res.status(201).json(load);
@@ -190,6 +296,14 @@ async function startServer() {
           return res.status(400).json({ message: err.errors.map(e => e.message).join(', ') });
         }
         if (err.name === 'SequelizeUniqueConstraintError') {
+          const constraint = err.parent?.constraint || '';
+          const paths = (err.errors || []).map((e) => e.path).filter(Boolean);
+          if (constraint === 'Loads_pkey' || paths.includes('id')) {
+            console.error('[SERVER] Loads primary key conflict — PostgreSQL id sequence may be out of sync. Restart the API (db.js syncs sequences on startup) or run setval on "Loads".');
+            return res.status(409).json({
+              message: 'Could not assign a new load id (database sequence out of sync). Restart the server to fix automatically, or contact support.',
+            });
+          }
           return res.status(409).json({ message: 'Load with this Pro Number already exists.' });
         }
         res.status(500).json({ message: 'Server error during load creation' });
@@ -282,6 +396,62 @@ async function startServer() {
           return res.status(400).json({ message: 'Invalid driverPayType specified for update.' });
         }
 
+        const mergedOdo = {
+          startingOdometer: Object.prototype.hasOwnProperty.call(updatedLoadData, 'startingOdometer')
+            ? updatedLoadData.startingOdometer
+            : loadToUpdate.startingOdometer,
+          loadedStartOdometer: Object.prototype.hasOwnProperty.call(updatedLoadData, 'loadedStartOdometer')
+            ? updatedLoadData.loadedStartOdometer
+            : loadToUpdate.loadedStartOdometer,
+          endingOdometer: Object.prototype.hasOwnProperty.call(updatedLoadData, 'endingOdometer')
+            ? updatedLoadData.endingOdometer
+            : loadToUpdate.endingOdometer,
+        };
+        const odoPut = computeLoadOdometerDerived(mergedOdo);
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'startingOdometer')) {
+          updatedLoadData.startingOdometer = odoPut.startingOdometer;
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'loadedStartOdometer')) {
+          updatedLoadData.loadedStartOdometer = odoPut.loadedStartOdometer;
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'endingOdometer')) {
+          updatedLoadData.endingOdometer = odoPut.endingOdometer;
+        }
+        updatedLoadData.actualDeadheadMiles = odoPut.actualDeadheadMiles;
+        updatedLoadData.actualLoadedMiles = odoPut.actualLoadedMiles;
+        updatedLoadData.actualMiles = odoPut.actualMiles;
+
+        const wasUndelivered = !loadToUpdate.dateDelivered;
+        const newDeliveredRaw = updatedLoadData.dateDelivered;
+        const becomesDelivered =
+          wasUndelivered &&
+          newDeliveredRaw !== undefined &&
+          newDeliveredRaw !== null &&
+          String(newDeliveredRaw).trim() !== '' &&
+          !isNaN(new Date(newDeliveredRaw).getTime());
+
+        if (becomesDelivered) {
+          if (
+            odoPut.startingOdometer === null ||
+            odoPut.loadedStartOdometer === null ||
+            odoPut.endingOdometer === null
+          ) {
+            return res.status(400).json({
+              message:
+                'To mark a load delivered, set starting odometer, odometer at pickup (loaded start), and ending odometer on the load first.',
+            });
+          }
+          if (odoPut.invalidOrder) {
+            return res.status(400).json({
+              message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
+            });
+          }
+        }
+
+        delete updatedLoadData.id;
+        delete updatedLoadData.createdAt;
+        delete updatedLoadData.updatedAt;
+
         // console.log('[SERVER] Updating load with data:', updatedLoadData);
         await loadToUpdate.update(updatedLoadData);
         res.json(loadToUpdate);
@@ -289,6 +459,16 @@ async function startServer() {
         console.error('[SERVER] Error updating load:', err);
         if (err.name === 'SequelizeValidationError') {
           return res.status(400).json({ message: err.errors.map(e => e.message).join(', ') });
+        }
+        if (err.name === 'SequelizeUniqueConstraintError') {
+          const constraint = err.parent?.constraint || '';
+          const paths = (err.errors || []).map((e) => e.path).filter(Boolean);
+          if (constraint === 'Loads_pkey' || paths.includes('id')) {
+            return res.status(409).json({
+              message: 'Could not update load (database id conflict). Restart the server to resync sequences.',
+            });
+          }
+          return res.status(409).json({ message: 'Another load already uses this Pro Number.' });
         }
         res.status(500).json({ message: 'Server error during load update' });
       }
@@ -303,6 +483,22 @@ async function startServer() {
         if (!load) return res.status(404).json({ message: 'Load not found' });
         if (load.dateDelivered) {
           return res.status(400).json({ message: 'Load already completed' });
+        }
+        const odoComplete = computeLoadOdometerDerived({
+          startingOdometer: load.startingOdometer,
+          loadedStartOdometer: load.loadedStartOdometer,
+          endingOdometer: load.endingOdometer,
+        });
+        if (
+          odoComplete.startingOdometer === null ||
+          odoComplete.loadedStartOdometer === null ||
+          odoComplete.endingOdometer === null ||
+          odoComplete.invalidOrder
+        ) {
+          return res.status(400).json({
+            message:
+              'Complete the load from Loads: enter starting odometer, odometer at pickup (loaded start), and ending odometer, then set the delivery date (starting < pickup < ending).',
+          });
         }
         load.dateDelivered = new Date(); // Set to current date and time
         await load.save();
@@ -368,30 +564,23 @@ async function startServer() {
           calculatedTotalFuelStopCost += 1.00;
         }
 
-        // Calculate MPG if odometer reading is provided
+        let odometerParsed = null;
+        if (req.body.odometerReading !== undefined && req.body.odometerReading !== null && req.body.odometerReading !== '') {
+          const p = parseFloat(req.body.odometerReading);
+          odometerParsed = Number.isNaN(p) ? null : p;
+        }
+
         let previousOdometer = null;
         let calculatedMpg = null;
-
-        if (req.body.odometerReading) {
-          const currentOdometer = parseFloat(req.body.odometerReading);
-
-          // Find the most recent fuel stop for this user to get previous odometer
-          const previousFuelStop = await FuelStops.findOne({
-            where: {
-              userId: req.userId,
-              odometerReading: { [Op.ne]: null },
-            },
-            order: [['createdAt', 'DESC']],
-            limit: 1
+        if (odometerParsed != null) {
+          const mpgResult = await computeMpgFromPreviousStop(FuelStops, {
+            userId: req.userId,
+            currentOdometer: odometerParsed,
+            excludeFuelStopId: null,
+            gallonsDiesel: gdp,
           });
-
-          if (previousFuelStop && previousFuelStop.odometerReading) {
-            previousOdometer = previousFuelStop.odometerReading;
-            const milesSinceLastFillup = currentOdometer - previousOdometer;
-            if (gdp > 0 && milesSinceLastFillup > 0) {
-              calculatedMpg = parseFloat((milesSinceLastFillup / gdp).toFixed(2));
-            }
-          }
+          previousOdometer = mpgResult.previousOdometer;
+          calculatedMpg = mpgResult.calculatedMpg;
         }
 
         // Map frontend payload and calculated values to the FuelStops model fields
@@ -411,7 +600,7 @@ async function startServer() {
           totalFuelStop: parseFloat(calculatedTotalFuelStopCost.toFixed(2)),
           fuelCardUsed: !!fuelCardUsed, // Ensure boolean
           discountEligible: !!discountEligible, // Ensure boolean
-          odometerReading: req.body.odometerReading || null,
+          odometerReading: odometerParsed,
           previousOdometer: previousOdometer,
           calculatedMpg: calculatedMpg,
           settledDieselPricePerGallon: null, // Initialize as null for new fuel stops
@@ -470,6 +659,7 @@ async function startServer() {
           pumpPriceDef,         // Expecting camelCase
           fuelCardUsed,         // New boolean field
           discountEligible,     // New boolean field
+          odometerReading,
         } = req.body;
 
         // Construct updateData carefully, only including fields that are present in req.body
@@ -516,6 +706,39 @@ async function startServer() {
         updateData.totalFuelStop = parseFloat(calculatedTotalFuelStopCost.toFixed(2)); // Recalculate
         if (fuelCardUsed !== undefined) updateData.fuelCardUsed = !!fuelCardUsed;
         if (discountEligible !== undefined) updateData.discountEligible = !!discountEligible;
+
+        const odometerInBody = odometerReading !== undefined;
+        const gallonsInBody = gallonsDieselPurchased !== undefined;
+
+        if (odometerInBody) {
+          if (odometerReading === null || odometerReading === '') {
+            updateData.odometerReading = null;
+            updateData.previousOdometer = null;
+            updateData.calculatedMpg = null;
+          } else {
+            const parsedOd = parseFloat(odometerReading);
+            updateData.odometerReading = Number.isNaN(parsedOd) ? null : parsedOd;
+          }
+        }
+
+        const effectiveOdometer =
+          updateData.odometerReading !== undefined ? updateData.odometerReading : fuelStop.odometerReading;
+        const shouldRecalcMpg =
+          (odometerInBody && updateData.odometerReading != null) ||
+          (gallonsInBody &&
+            effectiveOdometer != null &&
+            !Number.isNaN(parseFloat(effectiveOdometer)));
+
+        if (shouldRecalcMpg) {
+          const mpgResult = await computeMpgFromPreviousStop(FuelStops, {
+            userId: req.userId,
+            currentOdometer: effectiveOdometer,
+            excludeFuelStopId: fuelStop.id,
+            gallonsDiesel: gdpToUse,
+          });
+          updateData.previousOdometer = mpgResult.previousOdometer;
+          updateData.calculatedMpg = mpgResult.calculatedMpg;
+        }
 
         await fuelStop.update(updateData);
         res.json(fuelStop);

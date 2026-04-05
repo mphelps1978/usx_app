@@ -162,9 +162,13 @@ async function populate() {
     const weight        = minW + det(i * 11, 0, maxW - minW);
     const trailerNumber = TRAILERS[i % TRAILERS.length];
 
-    // Odometer
-    const startingOdometer = odometer + deadheadMiles;
-    const endingOdometer   = startingOdometer + loadedMiles;
+    // Odometer: start = dispatch (before deadhead); pickup = after deadhead; end = delivery
+    const startingOdometer = odometer;
+    const loadedStartOdometer = isLastLoad ? null : odometer + deadheadMiles;
+    const endingOdometer = isLastLoad ? null : odometer + deadheadMiles + loadedMiles;
+    const actualDeadheadMiles = isLastLoad ? null : deadheadMiles;
+    const actualLoadedMiles = isLastLoad ? null : loadedMiles;
+    const actualMiles = isLastLoad ? null : totalMiles;
 
     const projectedNet = round2(calculatedGross - totalDeductions - scaleCost);
 
@@ -186,8 +190,11 @@ async function populate() {
       totalMiles,
       weight,
       startingOdometer,
+      loadedStartOdometer,
       endingOdometer,
-      actualMiles:      loadedMiles,
+      actualDeadheadMiles,
+      actualLoadedMiles,
+      actualMiles,
       driverPayType:    'percentage',
       linehaul,
       fsc,
@@ -293,8 +300,8 @@ async function populate() {
       lastFuelOdometer = stopOdometer;
     }
 
-    // Advance odometer to end of this load
-    odometer = endingOdometer;
+    // Advance odometer to end of this load (same as endingOdometer when delivered)
+    odometer += deadheadMiles + loadedMiles;
 
     // Next dispatch: 1–2 days of home time after delivery
     if (!isLastLoad) {
