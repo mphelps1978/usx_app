@@ -1,8 +1,15 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, {
+	useEffect,
+	useLayoutEffect,
+	useState,
+	useMemo,
+	useCallback,
+} from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { fetchLoads, updateLoad } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
+import { resetForm, setFormData } from "../store/slices/formSlice";
 import { Bar, Pie, Line } from "react-chartjs-2";
 import {
 	Chart as ChartJS,
@@ -28,10 +35,19 @@ import {
 	Alert,
 	IconButton,
 	Divider,
+	Checkbox,
+	FormControlLabel,
+	Stack,
+	Dialog,
+	DialogTitle,
+	DialogContent,
+	DialogActions,
 } from "@mui/material";
 // import ChartCaptureButton from "./ChartCaptureButton"; // Disabled - kept for debugging
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import LoadFormDialog from "./LoadFormDialog";
+import { formatDateForInput } from "./loadFormUtils";
 
 ChartJS.register(
 	CategoryScale,
@@ -64,6 +80,22 @@ function getSettlementWeekKey(date) {
 	return `${year}-${month}-${day}`;
 }
 
+const SETTLEMENT_EXCLUDED_STORAGE_PREFIX =
+	"usx_dashboard_settlement_excluded_pros";
+
+function readExcludedProsForWeek(closingWedStr) {
+	if (typeof localStorage === "undefined") return [];
+	try {
+		const raw = localStorage.getItem(
+			`${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`
+		);
+		const parsed = raw ? JSON.parse(raw) : [];
+		return Array.isArray(parsed) ? parsed.map(String) : [];
+	} catch {
+		return [];
+	}
+}
+
 function Dashboard() {
 	const dispatch = useDispatch();
 	const navigate = useNavigate(); // Initialize useNavigate
@@ -80,6 +112,7 @@ function Dashboard() {
 
 	const activeLoad = loads.find((load) => !load.dateDelivered);
 	const [completeLoadError, setCompleteLoadError] = useState(null);
+	const [activeLoadEditOpen, setActiveLoadEditOpen] = useState(false);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
@@ -94,12 +127,28 @@ function Dashboard() {
 		}
 	};
 
-	const handleEditLoad = () => {
-		if (activeLoad && activeLoad.proNumber) {
-			navigate("/loads");
-			// The loads component will handle opening the modal with the load data
-		}
+	const handleCloseActiveLoadEdit = () => {
+		setActiveLoadEditOpen(false);
+		dispatch(resetForm());
 	};
+
+	const handleEditLoad = () => {
+		if (!activeLoad?.proNumber) return;
+		const formattedLoad = {
+			...activeLoad,
+			dateDispatched: formatDateForInput(activeLoad.dateDispatched),
+			dateDelivered: formatDateForInput(activeLoad.dateDelivered),
+		};
+		dispatch(setFormData(formattedLoad));
+		setActiveLoadEditOpen(true);
+	};
+
+	useEffect(() => {
+		if (activeLoadEditOpen && !activeLoad) {
+			setActiveLoadEditOpen(false);
+			dispatch(resetForm());
+		}
+	}, [activeLoadEditOpen, activeLoad, dispatch]);
 
 	const handleCompleteLoad = async () => {
 		setCompleteLoadError(null);
@@ -567,8 +616,8 @@ function Dashboard() {
 		},
 	};
 
-	// Current settlement period: Thu → Wed (closes Wednesday)
-	const { settlementLoads, settlementTotal, periodLabel } = useMemo(() => {
+	// Current settlement period: Thu → Wed (closes Wednesday; date-only delivery uses UTC midnight)
+	const { settlementLoads, periodLabel, closingWedStr } = useMemo(() => {
 		const today = new Date();
 		const closingWedStr = getSettlementWeekKey(today);
 		const closingDate = new Date(closingWedStr + "T00:00:00Z");
@@ -583,19 +632,74 @@ function Dashboard() {
 			});
 		const periodLabel = `${fmt(openingDate)} – ${fmt(closingDate)}`;
 
-		const settlementLoads = loads.filter((load) => {
+		const inPeriod = loads.filter((load) => {
 			if (!load.dateDelivered) return false;
 			const delivered = new Date(load.dateDelivered + "T00:00:00Z");
 			return delivered >= openingDate && delivered <= closingDate;
 		});
 
-		const settlementTotal = settlementLoads.reduce(
-			(sum, load) => sum + (parseFloat(load.projectedNet) || 0),
-			0
-		);
+		const settlementLoads = [...inPeriod].sort((a, b) => {
+			const da = String(a.dateDelivered).localeCompare(String(b.dateDelivered));
+			if (da !== 0) return da;
+			return String(a.proNumber).localeCompare(String(b.proNumber));
+		});
 
-		return { settlementLoads, settlementTotal, periodLabel };
+		return { settlementLoads, periodLabel, closingWedStr };
 	}, [loads]);
+
+	const [excludedSettlementPros, setExcludedSettlementPros] = useState([]);
+
+	useLayoutEffect(() => {
+		setExcludedSettlementPros(readExcludedProsForWeek(closingWedStr));
+	}, [closingWedStr]);
+
+	const persistExcludedSettlementPros = useCallback(
+		(nextList) => {
+			if (typeof localStorage === "undefined") return;
+			const key = `${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`;
+			try {
+				if (nextList.length === 0) localStorage.removeItem(key);
+				else localStorage.setItem(key, JSON.stringify(nextList));
+			} catch {
+				// ignore quota / private mode
+			}
+		},
+		[closingWedStr]
+	);
+
+	const toggleSettlementProIncluded = useCallback(
+		(proNumber) => {
+			const key = String(proNumber);
+			setExcludedSettlementPros((prev) => {
+				const wasExcluded = prev.includes(key);
+				const next = wasExcluded
+					? prev.filter((p) => p !== key)
+					: [...prev, key];
+				persistExcludedSettlementPros(next);
+				return next;
+			});
+		},
+		[persistExcludedSettlementPros]
+	);
+
+	const settlementTotal = useMemo(() => {
+		const excluded = new Set(excludedSettlementPros);
+		return settlementLoads.reduce((sum, load) => {
+			if (excluded.has(String(load.proNumber))) return sum;
+			return sum + (parseFloat(load.projectedNet) || 0);
+		}, 0);
+	}, [settlementLoads, excludedSettlementPros]);
+
+	const settlementIncludedCount = useMemo(() => {
+		const excluded = new Set(excludedSettlementPros);
+		return settlementLoads.filter((l) => !excluded.has(String(l.proNumber))).length;
+	}, [settlementLoads, excludedSettlementPros]);
+
+	const [settlementProsModalOpen, setSettlementProsModalOpen] = useState(false);
+
+	useEffect(() => {
+		if (settlementLoads.length === 0) setSettlementProsModalOpen(false);
+	}, [settlementLoads.length]);
 
 	return (
 		<Box sx={{ flexGrow: 1 }}>
@@ -605,10 +709,140 @@ function Dashboard() {
 
 			{/* <ChartCaptureButton /> */}{/* Disabled - kept for debugging */}
 
-			<Typography variant="subtitle1" sx={{ mb: 2, textAlign: "center", fontSize: "1.2rem" }}>
-				Projected Settlement Revenue ({periodLabel}):{" "}
-				<strong>${settlementTotal.toFixed(2)}</strong>
-			</Typography>
+			<Box sx={{ textAlign: "center", mb: 2 }}>
+				<Typography variant="subtitle1" sx={{ fontSize: "1.2rem" }}>
+					Projected Settlement Revenue ({periodLabel}):{" "}
+					<strong>${settlementTotal.toFixed(2)}</strong>
+				</Typography>
+				{settlementLoads.length > 0 ? (
+					<Box
+						sx={{
+							mt: 0.75,
+							display: "flex",
+							flexDirection: "column",
+							alignItems: "center",
+							gap: 0.75,
+						}}
+					>
+						<Typography variant="caption" color="text.secondary">
+							{settlementIncludedCount === settlementLoads.length
+								? `${settlementLoads.length} load${
+										settlementLoads.length !== 1 ? "s" : ""
+									} in this period`
+								: `${settlementIncludedCount} of ${settlementLoads.length} load${
+										settlementLoads.length !== 1 ? "s" : ""
+									} counted in total`}
+						</Typography>
+						<Button
+							size="small"
+							variant="outlined"
+							onClick={() => setSettlementProsModalOpen(true)}
+						>
+							View / edit PROs in this period
+						</Button>
+					</Box>
+				) : (
+					<Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+						No delivered loads in this settlement window yet.
+					</Typography>
+				)}
+			</Box>
+
+			<Dialog
+				open={settlementProsModalOpen}
+				onClose={() => setSettlementProsModalOpen(false)}
+				fullWidth
+				maxWidth="sm"
+				scroll="paper"
+				aria-labelledby="settlement-pros-dialog-title"
+			>
+				<DialogTitle component="div" sx={{ pb: 1 }}>
+					<Stack spacing={0.5}>
+						<Typography
+							variant="h6"
+							component="h2"
+							id="settlement-pros-dialog-title"
+							sx={{ fontSize: "1.125rem", fontWeight: 600 }}
+						>
+							Loads in this settlement period
+						</Typography>
+						<Typography variant="caption" color="text.secondary">
+							{periodLabel}
+						</Typography>
+					</Stack>
+				</DialogTitle>
+				<DialogContent dividers>
+					<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+						Delivery dates are whole days; your carrier may move late Wednesday (or
+						similar) loads to the next check. Uncheck Include to drop a PRO from the
+						dashboard total.
+					</Typography>
+					<Stack
+						component="ul"
+						sx={{
+							listStyle: "none",
+							m: 0,
+							p: 0,
+							border: "1px solid",
+							borderColor: "divider",
+							borderRadius: 1,
+							overflow: "hidden",
+						}}
+					>
+						{settlementLoads.map((load) => {
+							const pro = String(load.proNumber);
+							const net = parseFloat(load.projectedNet) || 0;
+							const included = !excludedSettlementPros.includes(pro);
+							return (
+								<Stack
+									component="li"
+									key={pro}
+									direction="row"
+									alignItems="center"
+									justifyContent="space-between"
+									sx={{
+										gap: 1,
+										px: 1.5,
+										py: 1,
+										borderBottom: "1px solid",
+										borderColor: "divider",
+										"&:last-child": { borderBottom: "none" },
+										backgroundColor: included ? "transparent" : "action.hover",
+									}}
+								>
+									<Box sx={{ minWidth: 0 }}>
+										<Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
+											PRO {pro}
+										</Typography>
+										<Typography
+											variant="caption"
+											color="text.secondary"
+											display="block"
+										>
+											Delivered {load.dateDelivered} · ${net.toFixed(2)} projected net
+										</Typography>
+									</Box>
+									<FormControlLabel
+										control={
+											<Checkbox
+												size="small"
+												checked={included}
+												onChange={() => toggleSettlementProIncluded(pro)}
+												inputProps={{ "aria-label": `Include PRO ${pro} in settlement total` }}
+											/>
+										}
+										label="Include"
+										sx={{ flexShrink: 0, mr: 0 }}
+									/>
+								</Stack>
+							);
+						})}
+					</Stack>
+				</DialogContent>
+				<DialogActions>
+					<Button onClick={() => setSettlementProsModalOpen(false)}>Close</Button>
+				</DialogActions>
+			</Dialog>
 
 			{completeLoadError && (
 				<Alert severity="warning" sx={{ mb: 2, maxWidth: 720, mx: "auto" }}>
@@ -803,6 +1037,8 @@ function Dashboard() {
 					</Paper>
 				</Grid>
 			</Grid>
+
+			<LoadFormDialog open={activeLoadEditOpen} onClose={handleCloseActiveLoadEdit} />
 		</Box>
 	);
 }

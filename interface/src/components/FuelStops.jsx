@@ -71,6 +71,12 @@ const formatDateForInput = (date) => {
 	return `${year}-${month}-${day}`;
 };
 
+const formatCurrency = (value) => {
+	const parsed = parseFloat(value);
+	const safeValue = Number.isNaN(parsed) ? 0 : parsed;
+	return `$${(Math.round(safeValue * 100) / 100).toFixed(2)}`;
+};
+
 function FuelStops() {
 	const dispatch = useDispatch();
 	const location = useLocation(); // Get location object
@@ -352,11 +358,7 @@ function FuelStops() {
 									</TableCell>
 									<TableCell align="right">
 										{/* Calculated: fs.totalDieselCost. Defaults to $0.00 if null/undefined. */}
-										$
-										{(
-											Math.round(parseFloat(fs.totalDieselCost) || 0 * 100) /
-											100
-										).toFixed(2)}
+										{formatCurrency(fs.totalDieselCost)}
 									</TableCell>
 									<TableCell align="right">
 										{/* fs.gallonsDefPurchased. Show 0.00 if 0. */}
@@ -369,16 +371,12 @@ function FuelStops() {
 										{/* Use corrected model field name: defPricePerGallon. Show $0.000 if 0. */}
 										{fs.defPricePerGallon !== undefined &&
 										fs.defPricePerGallon !== null
-											? `$${parseFloat(fs.defPricePerGallon).toFixed(0)}`
+											? `$${parseFloat(fs.defPricePerGallon).toFixed(2)}`
 											: "N/A"}
 									</TableCell>
 									<TableCell align="right">
 										{/* Calculated: fs.totalDefCost. Defaults to $0.00 if null/undefined. */}
-										{/* If totalDefCost can be 0 and should show $0.00, this is better: */}
-										$
-										{(
-											Math.round(parseFloat(fs.totalDefCost) || 0 * 100) / 100
-										).toFixed(2)}
+										{formatCurrency(fs.totalDefCost)}
 									</TableCell>
 									<TableCell align="center">
 										{fs.fuelCardUsed ? "Yes" : "No"}
@@ -388,9 +386,7 @@ function FuelStops() {
 									</TableCell>
 									<TableCell align="right">
 										{/* Calculated: fs.totalFuelStop. Defaults to $0.00 if null/undefined. */}
-										{(
-											Math.round(parseFloat(fs.totalFuelStop) || 0 * 100) / 100
-										).toFixed(2)}
+										{formatCurrency(fs.totalFuelStop)}
 									</TableCell>
 									<TableCell align="center">
 										<Tooltip title="Edit Fuel Stop">
@@ -712,6 +708,20 @@ function FuelStops() {
 						{fuelStopToSettle && settleFormData.settledDieselPricePerGallon && (
 							<Grid item xs={12}>
 								<Box sx={{ p: 2, bgcolor: "grey.100", borderRadius: 1 }}>
+									{(() => {
+										const pumpPrice = parseFloat(
+											fuelStopToSettle.dieselPricePerGallon
+										);
+										const settledPrice = parseFloat(
+											settleFormData.settledDieselPricePerGallon
+										);
+										const gallons = parseFloat(
+											fuelStopToSettle.gallonsDieselPurchased
+										);
+										const perGallonDelta = pumpPrice - settledPrice;
+										const totalSavings = perGallonDelta * gallons;
+										return (
+											<>
 									<Typography variant="subtitle2">
 										Settlement Summary:
 									</Typography>
@@ -724,19 +734,15 @@ function FuelStops() {
 										per gallon
 									</Typography>
 									<Typography variant="body2">
-										Difference: $
-										{(
-											parseFloat(settleFormData.settledDieselPricePerGallon) -
-											parseFloat(fuelStopToSettle.dieselPricePerGallon)
-										).toFixed(3)}{" "}
+										Difference: ${perGallonDelta.toFixed(3)}{" "}
 										per gallon
 									</Typography>
 									<Typography variant="body2">
-										Total Savings: $
-										{(parseFloat(settleFormData.settledDieselPricePerGallon) -
-											parseFloat(fuelStopToSettle.dieselPricePerGallon)) *
-											parseFloat(fuelStopToSettle.gallonsDieselPurchased)}
+										Total Savings: ${totalSavings.toFixed(2)}
 									</Typography>
+											</>
+										);
+									})()}
 								</Box>
 							</Grid>
 						)}

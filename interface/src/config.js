@@ -7,10 +7,23 @@ const normalizeApiBase = (raw) => {
   return `${trimmed}/api`;
 };
 
+const isSupabaseFunctionApiUrl = (raw) => {
+  if (!raw) return false;
+  const value = String(raw).toLowerCase();
+  return value.includes(".supabase.co/functions/v1");
+};
+
 const getApiConfig = () => {
-  const envUrl = import.meta.env?.VITE_API_URL;
-  if (envUrl && String(envUrl).trim()) {
-    const apiUrl = normalizeApiBase(String(envUrl).trim());
+  const primaryEnvUrl = import.meta.env?.VITE_API_URL;
+  const renderEnvUrl = import.meta.env?.VITE_RENDER_API_URL;
+  const envUrl = primaryEnvUrl && String(primaryEnvUrl).trim()
+    ? String(primaryEnvUrl).trim()
+    : renderEnvUrl && String(renderEnvUrl).trim()
+      ? String(renderEnvUrl).trim()
+      : "";
+
+  if (envUrl && !isSupabaseFunctionApiUrl(envUrl)) {
+    const apiUrl = normalizeApiBase(envUrl);
     return {
       apiUrl,
       frontendUrl: typeof window !== 'undefined' ? window.location.origin : '',
@@ -25,6 +38,8 @@ const getApiConfig = () => {
     hostname === '[::1]';
 
   if (!isLocalDev) {
+    // Guardrail: if VITE_API_URL was mistakenly set to a Supabase Functions endpoint,
+    // ignore it and use the known hosted REST API base instead.
     return {
       apiUrl: 'https://usxapp-production.up.railway.app/api',
       frontendUrl: 'https://usx-app-ten.vercel.app',

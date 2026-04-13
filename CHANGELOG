@@ -1,35 +1,41 @@
-Changelog:
+Changelog
 
-0.0.03
-  - Added User Settings for Standard Deductions(MRP, IFTA, Bond, etc..) in Database
-  - Added User Settings for Standard Deductions to API (GET PUT)
-  - Added User Settings for Standard Deductions to User Settings Component.
-  
-0.0.05 - Active Version
+Versions below 1.0.0 use MINOR bumps (0.x.0) for each snapshot you care about; list is newest first.
+
+0.6.0 — current
+  - Dashboard: Projected settlement — open a modal to list PROs in the pay period; uncheck Include to drop a load from the headline total (choices stored in localStorage per closing Wednesday)
+  - Dashboard: Edit the in-transit load opens the full load form in a modal without leaving the dashboard
+  - Refactor: Shared `LoadFormDialog` and `loadFormUtils` used by Loads and Dashboard
+
+0.5.0
   - Full remote deployment: API on Railway, database migrated to Supabase PostgreSQL
   - Dashboard: Projected Settlement Revenue widget (current period, centered)
   - Auth: Auto-redirect to login on expired session (401 interceptor)
   - Bugfix: All Redux slices and components now use config.js for API URL (were hardcoded to localhost)
 
-0.0.04 - DEPLOYED
+0.4.0
   - Fixed some dependency mismatching causing render issues on the frontend
   - Added logic to calculate total deductions on loads screen
-  - QOL Adjustments for FuelStop component
-  - Workflow Improvements to Dashboard
-    - Allow user to enter fuel stop for current active load
-  - Overall QOL Improvements to User Onboarding
-  - QOL Adjustments to Menu 
-  - Donation Link
-  - Move Changelog to separate file for revision notifications to user
-  
-0.0.1 BETA - In Progress
-  - First Iteration Public Beta Release
-  - Add error logging and reporting on backend
-  - Create Bug reporting feature
-  - Create Separation of Categories on Settings
+  - QOL adjustments for FuelStop component
+  - Workflow improvements to Dashboard (fuel stop for current active load from dashboard)
+  - Overall QOL improvements to user onboarding
+  - QOL adjustments to menu
+  - Donation link
+  - Move changelog to separate file for revision notifications
 
-0.0.2 - Redesign
-  - Refactor Code Base
-  - Adds fuel discount settlements
-  - properly stores all deductions in db
-  - quick fix to decimal termination in monetary values
+0.3.0
+  - User settings for standard deductions (MRP, IFTA, bond, etc.) in database
+  - Same settings exposed on API (GET/PUT)
+  - Standard deductions tab in User Settings UI
+
+0.2.0
+  - First iteration public beta release
+  - Error logging and reporting on backend
+  - Bug reporting feature
+  - Separation of categories on Settings
+
+0.1.0
+  - Refactor codebase
+  - Fuel discount settlements
+  - Store all deductions in DB
+  - Fix decimal termination in monetary values
