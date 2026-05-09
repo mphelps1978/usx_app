@@ -26,8 +26,7 @@ export const saveUserSettings = createAsyncThunk(
   async (settingsData, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.token;
-      // Frontend might send percentageRate as 0-100, backend expects 0-100 and converts to 0.0-1.0
-      // So, no special conversion needed here before sending to backend PUT route.
+      // percentageRate: 0–1 decimal; per-mile fields: dollars per mile (same units as stored).
       const response = await axios.put(`${API_URL}/users/settings`, settingsData, {
         headers: { Authorization: `Bearer ${token}` },
       });

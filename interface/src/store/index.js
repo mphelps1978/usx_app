@@ -4,6 +4,8 @@ import loadsReducer from './slices/loadsSlice'
 import formReducer from './slices/formSlice'
 import fuelStopsReducer from './slices/fuelStopsSlice'
 import userSettingsReducer from './slices/userSettingsSlice'
+import officeExpensesReducer from './slices/officeExpensesSlice'
+import receiptsReducer from './slices/receiptsSlice'
 
 export const store = configureStore({
   reducer: {
@@ -12,6 +14,8 @@ export const store = configureStore({
     form: formReducer,
     fuelStops: fuelStopsReducer,
     userSettings: userSettingsReducer,
+    officeExpenses: officeExpensesReducer,
+    receipts: receiptsReducer,
   },
 
   middleware: (getDefaultMiddleware) =>

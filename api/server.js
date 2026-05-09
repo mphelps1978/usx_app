@@ -6,8 +6,16 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); // Import bcrypt
 // Import the promise from db.js which will resolve with models and sequelize
 const fs = require('fs'); // For file system logging (optional)
+const path = require('path');
+const multer = require('multer');
 const dbPromise = require('./db');
-const { Op } = require('sequelize'); // Sequelize Op can be required directly
+const receiptStorage = require('./utils/receiptStorage');
+const { Op, fn, col, where } = require('sequelize');
+const {
+  mergeFixedExpensesForRead,
+  normalizeFixedExpensesInput,
+} = require('./constants/fixedExpenses');
+const { ALLOWED_OFFICE_EXPENSE_CATEGORY_VALUES } = require('./constants/officeExpenseCategories');
 
 /**
  * MPG for a fill-up: compare to the user's prior stop by odometer (largest reading
@@ -51,7 +59,7 @@ function toNullableNumberLoad(val) {
   return Number.isNaN(n) ? null : n;
 }
 
-/** Tax/odometer splits; all three readings required for derived miles. */
+/** Tax/odometer splits; derived miles only when all three readings are present and ordered. */
 function computeLoadOdometerDerived({ startingOdometer, loadedStartOdometer, endingOdometer }) {
   const s = toNullableNumberLoad(startingOdometer);
   const l = toNullableNumberLoad(loadedStartOdometer);
@@ -101,6 +109,9 @@ function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
   if (/^https:\/\/.+\.vercel\.app$/i.test(origin)) return true;
+  // Electron / local static server on ephemeral port
+  if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return true;
+  if (/^http:\/\/localhost:\d+$/.test(origin)) return true;
   return false;
 }
 
@@ -122,11 +133,16 @@ app.use(cors({
 }));
 app.use(express.json());
 
+const uploadReceiptMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
 // Wrap the server setup and start logic in an async function
 async function startServer() {
   try {
     // Await the promise from db.js to get the initialized models and sequelize instance
-    const { User, Loads, FuelStops, UserSettings, BugReport, sequelize } = await dbPromise;
+    const { User, Loads, FuelStops, UserSettings, BugReport, Vendor, OfficeExpense, sequelize } = await dbPromise;
 
     // Now User, Loads, FuelStops, UserSettings, and sequelize are defined and ready to use.
     console.log('[SERVER] FuelStops model available after DB init:', !!FuelStops); // Should log true
@@ -270,7 +286,7 @@ async function startServer() {
         }
 
         const baseRequiredFields = ['proNumber', 'dateDispatched', 'originCity', 'originState',
-          'destinationCity', 'destinationState', 'deadheadMiles', 'loadedMiles', 'weight', 'driverPayType'];
+          'destinationCity', 'destinationState', 'driverPayType'];
         let allRequiredFields = [...baseRequiredFields];
 
         if (driverPayType === 'percentage') {
@@ -295,6 +311,15 @@ async function startServer() {
           }
         }
 
+        const toNullableFloat = (v) => {
+          if (v === undefined || v === null || v === '') return null;
+          const n = parseFloat(v);
+          return Number.isNaN(n) ? null : n;
+        };
+        loadData.deadheadMiles = toNullableFloat(loadData.deadheadMiles);
+        loadData.loadedMiles = toNullableFloat(loadData.loadedMiles);
+        loadData.weight = toNullableFloat(loadData.weight);
+
         const odoCreate = computeLoadOdometerDerived({
           startingOdometer: loadData.startingOdometer,
           loadedStartOdometer: loadData.loadedStartOdometer,
@@ -307,26 +332,15 @@ async function startServer() {
         loadData.actualLoadedMiles = odoCreate.actualLoadedMiles;
         loadData.actualMiles = odoCreate.actualMiles;
 
-        if (!loadData.dateDelivered && odoCreate.startingOdometer === null) {
-          return res.status(400).json({ message: 'Starting odometer is required for an active load.' });
-        }
-
-        if (loadData.dateDelivered) {
-          if (
-            odoCreate.startingOdometer === null ||
-            odoCreate.loadedStartOdometer === null ||
-            odoCreate.endingOdometer === null
-          ) {
-            return res.status(400).json({
-              message:
-                'Delivered loads require starting odometer, odometer at pickup (loaded start), and ending odometer.',
-            });
-          }
-          if (odoCreate.invalidOrder) {
-            return res.status(400).json({
-              message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
-            });
-          }
+        if (
+          odoCreate.startingOdometer != null &&
+          odoCreate.loadedStartOdometer != null &&
+          odoCreate.endingOdometer != null &&
+          odoCreate.invalidOrder
+        ) {
+          return res.status(400).json({
+            message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
+          });
         }
 
         // Never let the client set PK or Sequelize timestamps on create (avoids pkey conflicts / bad merges).
@@ -479,20 +493,31 @@ async function startServer() {
 
         if (becomesDelivered) {
           if (
-            odoPut.startingOdometer === null ||
-            odoPut.loadedStartOdometer === null ||
-            odoPut.endingOdometer === null
+            odoPut.startingOdometer != null &&
+            odoPut.loadedStartOdometer != null &&
+            odoPut.endingOdometer != null &&
+            odoPut.invalidOrder
           ) {
-            return res.status(400).json({
-              message:
-                'To mark a load delivered, set starting odometer, odometer at pickup (loaded start), and ending odometer on the load first.',
-            });
-          }
-          if (odoPut.invalidOrder) {
             return res.status(400).json({
               message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
             });
           }
+        }
+
+        const toNullableFloatPut = (v) => {
+          if (v === undefined) return undefined;
+          if (v === null || v === '') return null;
+          const n = parseFloat(v);
+          return Number.isNaN(n) ? null : n;
+        };
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'deadheadMiles')) {
+          updatedLoadData.deadheadMiles = toNullableFloatPut(updatedLoadData.deadheadMiles);
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'loadedMiles')) {
+          updatedLoadData.loadedMiles = toNullableFloatPut(updatedLoadData.loadedMiles);
+        }
+        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'weight')) {
+          updatedLoadData.weight = toNullableFloatPut(updatedLoadData.weight);
         }
 
         delete updatedLoadData.id;
@@ -537,14 +562,13 @@ async function startServer() {
           endingOdometer: load.endingOdometer,
         });
         if (
-          odoComplete.startingOdometer === null ||
-          odoComplete.loadedStartOdometer === null ||
-          odoComplete.endingOdometer === null ||
+          odoComplete.startingOdometer != null &&
+          odoComplete.loadedStartOdometer != null &&
+          odoComplete.endingOdometer != null &&
           odoComplete.invalidOrder
         ) {
           return res.status(400).json({
-            message:
-              'Complete the load from Loads: enter starting odometer, odometer at pickup (loaded start), and ending odometer, then set the delivery date (starting < pickup < ending).',
+            message: 'Odometer readings must satisfy starting < pickup (loaded start) < ending.',
           });
         }
         load.dateDelivered = new Date(); // Set to current date and time
@@ -862,7 +886,11 @@ async function startServer() {
           // console.log(`[SERVER] No settings found for userId: ${req.userId}. Creating default settings.`);
           settings = await UserSettings.create({ userId: req.userId });
         }
-        res.json(settings);
+        const plain = settings.get({ plain: true });
+        res.json({
+          ...plain,
+          fixedExpenses: mergeFixedExpensesForRead(plain.fixedExpenses),
+        });
       } catch (err) {
         console.error('[SERVER] Error fetching user settings:', err);
         res.status(500).json({ message: 'Error fetching user settings' });
@@ -931,6 +959,26 @@ async function startServer() {
           }
         }
 
+        if (Object.prototype.hasOwnProperty.call(req.body, 'fixedExpenses')) {
+          const existingRow = await UserSettings.findOne({ where: { userId: req.userId } });
+          const existingJson = existingRow ? existingRow.fixedExpenses : null;
+          try {
+            if (req.body.fixedExpenses === null) {
+              updateData.fixedExpenses = null;
+            } else {
+              updateData.fixedExpenses = normalizeFixedExpensesInput(
+                req.body.fixedExpenses,
+                existingJson
+              );
+            }
+          } catch (e) {
+            if (e.code === 'INVALID_FIXED_EXPENSE') {
+              return res.status(400).json({ message: e.message || 'Invalid fixed expense value.' });
+            }
+            throw e;
+          }
+        }
+
         // Upsert ensures record is created if not found, or updated if found.
         const [settings] = await UserSettings.upsert(
           { userId: req.userId, ...updateData },
@@ -938,14 +986,393 @@ async function startServer() {
         );
         // upsert might return an array [instance, createdBoolean] or just instance depending on dialect/version
         const resultSettings = Array.isArray(settings) ? settings[0] : settings;
-
-        res.json(resultSettings);
+        const plainOut = resultSettings.get ? resultSettings.get({ plain: true }) : resultSettings;
+        res.json({
+          ...plainOut,
+          fixedExpenses: mergeFixedExpensesForRead(plainOut.fixedExpenses),
+        });
       } catch (err) {
         console.error('[SERVER] Error updating user settings:', err);
         if (err.name === 'SequelizeValidationError') {
           return res.status(400).json({ message: err.errors.map(e => e.message).join(', ') });
         }
         res.status(500).json({ message: 'Error updating user settings' });
+      }
+    });
+
+    async function upsertVendorForExpense(userId, body, { transaction } = {}) {
+      const name = (body.vendorName || '').trim();
+      if (!name) {
+        const err = new Error('Vendor name is required');
+        err.code = 'VENDOR_NAME';
+        throw err;
+      }
+      const norm = (s) => {
+        if (s === undefined || s === null) return null;
+        const t = String(s).trim();
+        return t === '' ? null : t;
+      };
+      const addressStreet = norm(body.addressStreet);
+      const city = norm(body.city);
+      const state = norm(body.state);
+      const zip = norm(body.zip);
+      const phone = norm(body.phone);
+
+      const existing = await Vendor.findOne({
+        where: {
+          userId,
+          [Op.and]: where(fn('LOWER', col('name')), Op.eq, name.toLowerCase()),
+        },
+        transaction,
+      });
+
+      if (existing) {
+        const patch = {};
+        if (addressStreet !== null) patch.addressStreet = addressStreet;
+        if (city !== null) patch.city = city;
+        if (state !== null) patch.state = state;
+        if (zip !== null) patch.zip = zip;
+        if (phone !== null) patch.phone = phone;
+        if (Object.keys(patch).length) await existing.update(patch, { transaction });
+        return existing;
+      }
+
+      return Vendor.create({
+        userId,
+        name,
+        addressStreet,
+        city,
+        state,
+        zip,
+        phone,
+      }, { transaction });
+    }
+
+    function parseOfficeExpenseLine(raw) {
+      const category = typeof raw.category === 'string' ? raw.category.trim() : '';
+      if (!ALLOWED_OFFICE_EXPENSE_CATEGORY_VALUES.has(category)) {
+        return { error: 'Choose a valid category.' };
+      }
+      const description = typeof raw.description === 'string' ? raw.description.trim() : '';
+      if (!description) {
+        return { error: 'Item description is required.' };
+      }
+      const qty = parseFloat(raw.quantity);
+      const ind = parseFloat(raw.individualPrice);
+      if (Number.isNaN(qty) || qty <= 0) {
+        return { error: 'Quantity must be a positive number.' };
+      }
+      if (Number.isNaN(ind) || ind < 0) {
+        return { error: 'Individual price must be a non-negative number.' };
+      }
+      let extended;
+      const ep = raw.extendedPrice;
+      if (ep !== undefined && ep !== null && ep !== '') {
+        extended = parseFloat(ep);
+        if (Number.isNaN(extended) || extended < 0) {
+          return { error: 'Extended price must be a non-negative number.' };
+        }
+      } else {
+        extended = Math.round(qty * ind * 100) / 100;
+      }
+      return {
+        ok: true,
+        qty,
+        ind,
+        extended,
+        description,
+        category,
+      };
+    }
+
+    function unlinkReceiptIfExists(relativeKey) {
+      if (!relativeKey) return;
+      const abs = receiptStorage.resolveReceiptAbsolutePath(relativeKey);
+      if (abs && fs.existsSync(abs)) {
+        try {
+          fs.unlinkSync(abs);
+        } catch (e) {
+          console.warn('[RECEIPT] Could not delete old file:', e.message);
+        }
+      }
+    }
+
+    function officeExpenseMultipart(req, res, next) {
+      const ct = req.headers['content-type'] || '';
+      if (ct.includes('multipart/form-data')) {
+        return uploadReceiptMemory.single('receipt')(req, res, (err) => {
+          if (err) {
+            return res.status(400).json({ message: err.message || 'File upload failed' });
+          }
+          next();
+        });
+      }
+      next();
+    }
+
+    app.get('/api/vendors', authenticate, async (req, res) => {
+      try {
+        const vendors = await Vendor.findAll({
+          where: { userId: req.userId },
+          order: [['name', 'ASC']],
+        });
+        res.json(vendors);
+      } catch (err) {
+        console.error('[SERVER] Error listing vendors:', err);
+        res.status(500).json({ message: 'Error listing vendors' });
+      }
+    });
+
+    app.get('/api/office-expenses', authenticate, async (req, res) => {
+      try {
+        const rows = await OfficeExpense.findAll({
+          where: { userId: req.userId },
+          include: [{ model: Vendor, as: 'vendor' }],
+          order: [['createdAt', 'DESC']],
+        });
+        res.json(rows);
+      } catch (err) {
+        console.error('[SERVER] Error listing office expenses:', err);
+        res.status(500).json({ message: 'Error listing office expenses' });
+      }
+    });
+
+    app.post('/api/office-expenses', authenticate, officeExpenseMultipart, async (req, res) => {
+      try {
+        let body = req.body;
+        if ((req.headers['content-type'] || '').includes('multipart/form-data')) {
+          body = { ...req.body };
+          if (typeof body.items === 'string') {
+            try {
+              body.items = JSON.parse(body.items);
+            } catch (e) {
+              return res.status(400).json({ message: 'Invalid items JSON in multipart request.' });
+            }
+          }
+        }
+
+        const purchaseDate = body.purchaseDate || null;
+
+        let lineInputs;
+        if (Array.isArray(body.items)) {
+          if (body.items.length === 0) {
+            return res.status(400).json({ message: 'At least one line item is required.' });
+          }
+          lineInputs = body.items;
+        } else {
+          lineInputs = [{
+            quantity: body.quantity,
+            individualPrice: body.individualPrice,
+            extendedPrice: body.extendedPrice,
+            description: body.description,
+            category: body.category,
+          }];
+        }
+
+        if (!body.vendorName || !String(body.vendorName).trim()) {
+          return res.status(400).json({ message: 'Vendor name is required.' });
+        }
+
+        let receiptTax = parseFloat(body.tax);
+        if (Number.isNaN(receiptTax)) receiptTax = 0;
+        if (receiptTax < 0) {
+          return res.status(400).json({ message: 'Tax must be a non-negative number.' });
+        }
+
+        const parsedLines = [];
+        for (let i = 0; i < lineInputs.length; i++) {
+          const p = parseOfficeExpenseLine(lineInputs[i]);
+          if (p.error) {
+            const suffix = lineInputs.length > 1 ? ` (line ${i + 1})` : '';
+            return res.status(400).json({ message: `${p.error}${suffix}` });
+          }
+          parsedLines.push(p);
+        }
+
+        const receiptFile = req.file;
+        if (receiptFile && !receiptStorage.allowedReceiptMime(receiptFile.mimetype, receiptFile.originalname)) {
+          return res.status(400).json({ message: 'Receipt must be a PDF or image file.' });
+        }
+
+        const createdIds = await sequelize.transaction(async (t) => {
+          const vendor = await upsertVendorForExpense(req.userId, {
+            vendorName: body.vendorName,
+            addressStreet: body.addressStreet,
+            city: body.city,
+            state: body.state,
+            zip: body.zip,
+            phone: body.phone,
+          }, { transaction: t });
+
+          const ids = [];
+          const lastIdx = parsedLines.length - 1;
+          for (let i = 0; i < parsedLines.length; i++) {
+            const p = parsedLines[i];
+            const taxForLine = i === lastIdx ? receiptTax : 0;
+            const total = Math.round((p.extended + taxForLine) * 100) / 100;
+            const expense = await OfficeExpense.create({
+              userId: req.userId,
+              vendorId: vendor.id,
+              quantity: p.qty,
+              individualPrice: p.ind,
+              extendedPrice: p.extended,
+              tax: taxForLine,
+              total,
+              purchaseDate,
+              description: p.description,
+              category: p.category,
+            }, { transaction: t });
+            ids.push(expense.id);
+          }
+
+          if (receiptFile && receiptFile.buffer && receiptFile.buffer.length) {
+            const receiptKey = receiptStorage.saveReceiptBuffer({
+              userId: req.userId,
+              transactionDate: purchaseDate || new Date(),
+              vendorName: body.vendorName,
+              buffer: receiptFile.buffer,
+              mimeType: receiptFile.mimetype,
+              originalName: receiptFile.originalname,
+            });
+            await OfficeExpense.update(
+              { receiptFileKey: receiptKey },
+              { where: { id: { [Op.in]: ids }, userId: req.userId }, transaction: t },
+            );
+          }
+          return ids;
+        });
+
+        const items = await OfficeExpense.findAll({
+          where: { id: { [Op.in]: createdIds } },
+          include: [{ model: Vendor, as: 'vendor' }],
+          order: [['id', 'ASC']],
+        });
+        res.status(201).json({ items });
+      } catch (err) {
+        console.error('[SERVER] Error creating office expense:', err);
+        if (err.code === 'VENDOR_NAME') {
+          return res.status(400).json({ message: err.message });
+        }
+        if (err.code === 'EMPTY_FILE') {
+          return res.status(400).json({ message: 'Receipt file was empty.' });
+        }
+        if (err.name === 'SequelizeValidationError') {
+          return res.status(400).json({ message: err.errors.map(e => e.message).join(', ') });
+        }
+        res.status(500).json({ message: 'Error saving office expense' });
+      }
+    });
+
+    app.post('/api/receipts', authenticate, uploadReceiptMemory.single('file'), async (req, res) => {
+      try {
+        const { targetType, targetId } = req.body;
+        if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+          return res.status(400).json({ message: 'file is required.' });
+        }
+        if (!receiptStorage.allowedReceiptMime(req.file.mimetype, req.file.originalname)) {
+          return res.status(400).json({ message: 'File must be PDF or an image.' });
+        }
+        const tid = parseInt(targetId, 10);
+        if (Number.isNaN(tid)) {
+          return res.status(400).json({ message: 'targetId must be a number.' });
+        }
+
+        if (targetType === 'fuel_stop') {
+          const fuelStop = await FuelStops.findOne({ where: { id: tid, userId: req.userId } });
+          if (!fuelStop) {
+            return res.status(404).json({ message: 'Fuel stop not found.' });
+          }
+          unlinkReceiptIfExists(fuelStop.receiptFileKey);
+          const key = receiptStorage.saveReceiptBuffer({
+            userId: req.userId,
+            transactionDate: fuelStop.dateOfStop,
+            vendorName: fuelStop.vendor,
+            buffer: req.file.buffer,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+          });
+          await fuelStop.update({ receiptFileKey: key });
+          const updated = await FuelStops.findByPk(fuelStop.id);
+          return res.status(201).json({ receiptFileKey: key, row: updated });
+        }
+
+        if (targetType === 'office_expense') {
+          const row = await OfficeExpense.findOne({
+            where: { id: tid, userId: req.userId },
+            include: [{ model: Vendor, as: 'vendor' }],
+          });
+          if (!row) {
+            return res.status(404).json({ message: 'Office expense not found.' });
+          }
+          unlinkReceiptIfExists(row.receiptFileKey);
+          const vendorName = row.vendor?.name || 'vendor';
+          const key = receiptStorage.saveReceiptBuffer({
+            userId: req.userId,
+            transactionDate: row.purchaseDate || row.createdAt,
+            vendorName,
+            buffer: req.file.buffer,
+            mimeType: req.file.mimetype,
+            originalName: req.file.originalname,
+          });
+          await row.update({ receiptFileKey: key });
+          const updated = await OfficeExpense.findByPk(row.id, {
+            include: [{ model: Vendor, as: 'vendor' }],
+          });
+          return res.status(201).json({ receiptFileKey: key, row: updated });
+        }
+
+        return res.status(400).json({ message: 'targetType must be fuel_stop or office_expense.' });
+      } catch (err) {
+        console.error('[SERVER] Error attaching receipt:', err);
+        if (err.code === 'EMPTY_FILE') {
+          return res.status(400).json({ message: 'Empty file.' });
+        }
+        res.status(500).json({ message: 'Error saving receipt' });
+      }
+    });
+
+    app.get('/api/receipts/download', authenticate, async (req, res) => {
+      try {
+        const { targetType, targetId } = req.query;
+        const tid = parseInt(targetId, 10);
+        if (Number.isNaN(tid)) {
+          return res.status(400).json({ message: 'targetId required' });
+        }
+        let relativeKey = null;
+        let downloadName = 'receipt.pdf';
+
+        if (targetType === 'fuel_stop') {
+          const fuelStop = await FuelStops.findOne({ where: { id: tid, userId: req.userId } });
+          if (!fuelStop || !fuelStop.receiptFileKey) {
+            return res.status(404).json({ message: 'Receipt not found.' });
+          }
+          relativeKey = fuelStop.receiptFileKey;
+          const stamp = receiptStorage.dateStamp(fuelStop.dateOfStop);
+          downloadName = `${stamp}_${receiptStorage.slugVendor(fuelStop.vendor)}${path.extname(relativeKey) || '.pdf'}`;
+        } else if (targetType === 'office_expense') {
+          const row = await OfficeExpense.findOne({
+            where: { id: tid, userId: req.userId },
+            include: [{ model: Vendor, as: 'vendor' }],
+          });
+          if (!row || !row.receiptFileKey) {
+            return res.status(404).json({ message: 'Receipt not found.' });
+          }
+          relativeKey = row.receiptFileKey;
+          const stamp = receiptStorage.dateStamp(row.purchaseDate || row.createdAt);
+          downloadName = `${stamp}_${receiptStorage.slugVendor(row.vendor?.name)}${path.extname(relativeKey) || '.pdf'}`;
+        } else {
+          return res.status(400).json({ message: 'Invalid targetType' });
+        }
+
+        const absPath = receiptStorage.resolveReceiptAbsolutePath(relativeKey);
+        if (!absPath || !fs.existsSync(absPath)) {
+          return res.status(404).json({ message: 'File missing on server.' });
+        }
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/"/g, '')}"`);
+        return res.sendFile(absPath);
+      } catch (err) {
+        console.error('[SERVER] Receipt download error:', err);
+        res.status(500).json({ message: 'Error downloading receipt' });
       }
     });
 

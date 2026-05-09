@@ -10,13 +10,12 @@ import { useNavigate } from "react-router-dom"; // Import useNavigate
 import { fetchLoads, updateLoad } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
-import { Bar, Pie, Line } from "react-chartjs-2";
+import { Bar, Line } from "react-chartjs-2";
 import {
 	Chart as ChartJS,
 	CategoryScale,
 	LinearScale,
 	BarElement,
-	ArcElement,
 	Title,
 	Tooltip,
 	Legend,
@@ -47,13 +46,14 @@ import {
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import LoadFormDialog from "./LoadFormDialog";
+import OfficeReceiptDialog from "./OfficeReceiptDialog";
 import { formatDateForInput } from "./loadFormUtils";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 
 ChartJS.register(
 	CategoryScale,
 	LinearScale,
 	BarElement,
-	ArcElement,
 	Title,
 	Tooltip,
 	Legend,
@@ -177,8 +177,8 @@ function Dashboard() {
 		}
 	};
 
-	// Odometer-based tax miles: only delivered loads with server-derived actual splits
-	const taxMilesSummary = useMemo(() => {
+	/** Delivered loads with full odometer splits; compare dispatched vs actual per segment. */
+	const milesComparisonSummary = useMemo(() => {
 		const deliveredLoads = loads.filter((l) => l.dateDelivered);
 		const qualifying = deliveredLoads.filter((l) => {
 			const dh = l.actualDeadheadMiles;
@@ -188,43 +188,58 @@ function Dashboard() {
 			const ldn = parseFloat(ld);
 			return !Number.isNaN(dhn) && !Number.isNaN(ldn);
 		});
-		const totalDeadheadMiles = qualifying.reduce(
-			(s, l) => s + (parseFloat(l.actualDeadheadMiles) || 0),
-			0
-		);
-		const totalLoadedMiles = qualifying.reduce(
-			(s, l) => s + (parseFloat(l.actualLoadedMiles) || 0),
-			0
-		);
+		let dispatchedDeadhead = 0;
+		let dispatchedLoaded = 0;
+		let actualDeadhead = 0;
+		let actualLoaded = 0;
+		for (const l of qualifying) {
+			dispatchedDeadhead += parseFloat(l.deadheadMiles) || 0;
+			dispatchedLoaded += parseFloat(l.loadedMiles) || 0;
+			actualDeadhead += parseFloat(l.actualDeadheadMiles) || 0;
+			actualLoaded += parseFloat(l.actualLoadedMiles) || 0;
+		}
+		const totalDispatched = dispatchedDeadhead + dispatchedLoaded;
+		const totalActual = actualDeadhead + actualLoaded;
 		return {
-			totalDeadheadMiles,
-			totalLoadedMiles,
+			dispatchedDeadhead,
+			dispatchedLoaded,
+			actualDeadhead,
+			actualLoaded,
+			totalDispatched,
+			totalActual,
 			qualifyingCount: qualifying.length,
 			omittedDeliveredCount: deliveredLoads.length - qualifying.length,
 			deliveredCount: deliveredLoads.length,
 		};
 	}, [loads]);
 
-	const milesData = useMemo(
+	const milesComparisonData = useMemo(
 		() => ({
-			labels: ["Actual deadhead (odometer)", "Actual loaded (odometer)"],
+			labels: ["Deadhead", "Loaded"],
 			datasets: [
 				{
-					label: "Miles",
+					label: "Dispatched miles",
 					data: [
-						taxMilesSummary.totalDeadheadMiles,
-						taxMilesSummary.totalLoadedMiles,
+						milesComparisonSummary.dispatchedDeadhead,
+						milesComparisonSummary.dispatchedLoaded,
 					],
-					backgroundColor: [
-						"rgba(255, 99, 132, 0.2)",
-						"rgba(54, 162, 235, 0.2)",
+					backgroundColor: "rgba(54, 162, 235, 0.45)",
+					borderColor: "rgba(54, 162, 235, 1)",
+					borderWidth: 1,
+				},
+				{
+					label: "Actual miles (odometer)",
+					data: [
+						milesComparisonSummary.actualDeadhead,
+						milesComparisonSummary.actualLoaded,
 					],
-					borderColor: ["rgba(255, 99, 132, 1)", "rgba(54, 162, 235, 1)"],
+					backgroundColor: "rgba(255, 99, 132, 0.45)",
+					borderColor: "rgba(255, 99, 132, 1)",
 					borderWidth: 1,
 				},
 			],
 		}),
-		[taxMilesSummary]
+		[milesComparisonSummary]
 	);
 
 	// Calculate Net Revenue by Month
@@ -393,42 +408,34 @@ function Dashboard() {
 		},
 	};
 
-	const pieSum =
-		taxMilesSummary.totalDeadheadMiles + taxMilesSummary.totalLoadedMiles;
-	const pieChartOptions = {
+	const milesComparisonChartOptions = {
 		...baseChartOptions,
 		plugins: {
-			legend: {
-				position: "top",
-				labels: {
-					generateLabels: function (chart) {
-						const data = chart.data;
-						if (data.labels.length && data.datasets.length) {
-							return data.labels.map((label, i) => {
-								const meta = chart.getDatasetMeta(0);
-								const style = meta.controller.getStyle(i);
-								const value = data.datasets[0].data[i];
-								const percentage =
-									pieSum > 0
-										? ((value / pieSum) * 100).toFixed(1)
-										: "0.0";
-
-								return {
-									text: `${label}: ${value} miles (${percentage}%)`,
-									fillStyle: style.backgroundColor,
-									strokeStyle: style.borderColor,
-									lineWidth: style.borderWidth,
-									hidden: isNaN(value) || meta.data[i].hidden,
-									index: i,
-								};
-							});
-						}
-						return [];
+			...baseChartOptions.plugins,
+			tooltip: {
+				...baseChartOptions.plugins.tooltip,
+				callbacks: {
+					label(ctx) {
+						const v = ctx.parsed.y;
+						const n =
+							typeof v === "number" && !Number.isNaN(v)
+								? Math.round(v * 10) / 10
+								: v;
+						return `${ctx.dataset.label}: ${n} mi`;
 					},
 				},
 			},
-			datalabels: {
-				display: false,
+		},
+		scales: {
+			...baseChartOptions.scales,
+			y: {
+				...baseChartOptions.scales.y,
+				beginAtZero: true,
+				title: {
+					display: true,
+					text: "Miles",
+					font: { size: 12, weight: "bold" },
+				},
 			},
 		},
 	};
@@ -696,6 +703,7 @@ function Dashboard() {
 	}, [settlementLoads, excludedSettlementPros]);
 
 	const [settlementProsModalOpen, setSettlementProsModalOpen] = useState(false);
+	const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
 
 	useEffect(() => {
 		if (settlementLoads.length === 0) setSettlementProsModalOpen(false);
@@ -703,9 +711,23 @@ function Dashboard() {
 
 	return (
 		<Box sx={{ flexGrow: 1 }}>
-			<Typography variant="h4" gutterBottom component="h2" sx={{ mb: 2 }}>
+			<Typography variant="h4" gutterBottom component="h2" sx={{ mb: 1 }}>
 				Dashboard
 			</Typography>
+			<Stack direction="row" flexWrap="wrap" spacing={1} sx={{ mb: 2 }}>
+				<Button
+					variant="outlined"
+					size="small"
+					startIcon={<ReceiptLongIcon />}
+					onClick={() => setReceiptDialogOpen(true)}
+				>
+					Add a new receipt
+				</Button>
+			</Stack>
+			<OfficeReceiptDialog
+				open={receiptDialogOpen}
+				onClose={() => setReceiptDialogOpen(false)}
+			/>
 
 			{/* <ChartCaptureButton /> */}{/* Disabled - kept for debugging */}
 
@@ -942,31 +964,63 @@ function Dashboard() {
 						}}
 					>
 						<Typography variant="h6" gutterBottom component="h3">
-							Actual miles (odometer, tax)
+							Dispatched vs actual miles
 						</Typography>
-						{taxMilesSummary.qualifyingCount === 0 ? (
+						{milesComparisonSummary.qualifyingCount === 0 ? (
 							<Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
 								Enter starting, pickup, and ending odometer on delivered loads
-								(Loads page) to see deadhead vs loaded splits.
+								(Loads page) to compare dispatched deadhead/loaded miles with
+								odometer-based actuals.
 							</Typography>
 						) : (
 							<>
-								{taxMilesSummary.omittedDeliveredCount > 0 && (
+								<Box sx={{ mb: 0.5 }}>
+									<Typography
+										variant="caption"
+										color="text.secondary"
+										display="block"
+										sx={{ mb: 0.25 }}
+									>
+										<strong>Dispatched</strong> — deadhead:{" "}
+										{Math.round(milesComparisonSummary.dispatchedDeadhead * 10) / 10}{" "}
+										mi · loaded:{" "}
+										{Math.round(milesComparisonSummary.dispatchedLoaded * 10) / 10} mi ·
+										total:{" "}
+										<strong>
+											{Math.round(milesComparisonSummary.totalDispatched * 10) / 10} mi
+										</strong>
+									</Typography>
+									<Typography variant="caption" color="text.secondary" display="block">
+										<strong>Actual (odometer)</strong> — deadhead:{" "}
+										{Math.round(milesComparisonSummary.actualDeadhead * 10) / 10} mi ·
+										loaded:{" "}
+										{Math.round(milesComparisonSummary.actualLoaded * 10) / 10} mi ·
+										total:{" "}
+										<strong>
+											{Math.round(milesComparisonSummary.totalActual * 10) / 10} mi
+										</strong>
+									</Typography>
+								</Box>
+								{milesComparisonSummary.omittedDeliveredCount > 0 && (
 									<Typography
 										variant="caption"
 										color="text.secondary"
 										display="block"
 										sx={{ mb: 1 }}
 									>
-										Based on {taxMilesSummary.qualifyingCount} load
-										{taxMilesSummary.qualifyingCount !== 1 ? "s" : ""} with full
-										odometer data; {taxMilesSummary.omittedDeliveredCount} delivered
-										load{taxMilesSummary.omittedDeliveredCount !== 1 ? "s" : ""}{" "}
+										Based on {milesComparisonSummary.qualifyingCount} load
+										{milesComparisonSummary.qualifyingCount !== 1 ? "s" : ""}{" "}
+										with full odometer data;{" "}
+										{milesComparisonSummary.omittedDeliveredCount} delivered load
+										{milesComparisonSummary.omittedDeliveredCount !== 1 ? "s" : ""}{" "}
 										omitted.
 									</Typography>
 								)}
 								<Box sx={{ flexGrow: 1, position: "relative" }}>
-									<Pie data={milesData} options={pieChartOptions} />
+									<Bar
+										data={milesComparisonData}
+										options={milesComparisonChartOptions}
+									/>
 								</Box>
 							</>
 						)}

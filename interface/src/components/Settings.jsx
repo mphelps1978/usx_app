@@ -10,18 +10,38 @@ import {
 	DialogActions,
 	DialogContent,
 	DialogTitle,
-	FormControl,
-	FormControlLabel,
-	FormLabel,
 	Grid,
-	Radio,
-	RadioGroup,
 	TextField,
 	Typography,
 	CircularProgress,
 	Alert,
 	Snackbar,
+	Box,
+	Tabs,
+	Tab,
+	InputAdornment,
 } from "@mui/material";
+import {
+	FIXED_EXPENSE_FIELDS,
+	DEFAULT_FIXED_EXPENSE_AMOUNTS,
+} from "../constants/fixedExpenses";
+
+function TabPanel({ children, value, index }) {
+	return (
+		<div
+			role="tabpanel"
+			hidden={value !== index}
+			id={`settings-tabpanel-${index}`}
+		>
+			{value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
+		</div>
+	);
+}
+
+const emptyFixedLocal = () =>
+	Object.fromEntries(
+		FIXED_EXPENSE_FIELDS.map(({ key }) => [key, ""])
+	);
 
 function Settings({ open, onClose }) {
 	const dispatch = useDispatch();
@@ -31,48 +51,47 @@ function Settings({ open, onClose }) {
 		error: settingsError,
 	} = useSelector((state) => state.userSettings);
 
+	const [tab, setTab] = useState(0);
 	const [localSettings, setLocalSettings] = useState({
-		driverPayType: "",
 		percentageRate: "",
 		fuelRoadUseTax: "",
 		maintenanceReserve: "",
 		bondDeposit: "",
 		mrpFee: "",
 	});
+	const [fixedLocal, setFixedLocal] = useState(emptyFixedLocal);
 	const [saveSuccess, setSaveSuccess] = useState(false);
 	const [saveError, setSaveError] = useState(null);
 
 	useEffect(() => {
 		if (open) {
 			dispatch(fetchUserSettings());
+			setTab(0);
 		}
 	}, [dispatch, open]);
 
 	useEffect(() => {
 		if (settings) {
+			const toPerMileStr = (v) =>
+				v != null && v !== "" ? String(Number(v)) : "";
 			setLocalSettings({
-				driverPayType: settings.driverPayType || "percentage",
 				percentageRate:
 					settings.percentageRate != null
 						? (settings.percentageRate * 100).toString()
 						: "0",
-				fuelRoadUseTax:
-					settings.fuelRoadUseTax != null
-						? (settings.fuelRoadUseTax * 100).toString()
-						: "0",
-				maintenanceReserve:
-					settings.maintenanceReserve != null
-						? (settings.maintenanceReserve * 100).toString()
-						: "0",
-				bondDeposit:
-					settings.bondDeposit != null
-						? (settings.bondDeposit * 100).toString()
-						: "0",
-				mrpFee:
-					settings.mrpFee != null
-						? (settings.mrpFee * 100).toString()
-						: "0",
+				fuelRoadUseTax: toPerMileStr(settings.fuelRoadUseTax),
+				maintenanceReserve: toPerMileStr(settings.maintenanceReserve),
+				bondDeposit: toPerMileStr(settings.bondDeposit),
+				mrpFee: toPerMileStr(settings.mrpFee),
 			});
+			const nextFixed = emptyFixedLocal();
+			const src = settings.fixedExpenses || DEFAULT_FIXED_EXPENSE_AMOUNTS;
+			for (const { key } of FIXED_EXPENSE_FIELDS) {
+				const v = src[key];
+				nextFixed[key] =
+					v != null && v !== "" ? String(v) : "";
+			}
+			setFixedLocal(nextFixed);
 		}
 	}, [settings]);
 
@@ -82,8 +101,9 @@ function Settings({ open, onClose }) {
 		setSaveError(null);
 	};
 
-	const handleRadioChange = (e) => {
-		setLocalSettings((prev) => ({ ...prev, driverPayType: e.target.value }));
+	const handleFixedChange = (key) => (e) => {
+		const { value } = e.target;
+		setFixedLocal((prev) => ({ ...prev, [key]: value }));
 		setSaveError(null);
 	};
 
@@ -93,47 +113,57 @@ function Settings({ open, onClose }) {
 		setSaveSuccess(false);
 
 		const settingsToSave = {
-			driverPayType: localSettings.driverPayType,
+			driverPayType: "percentage",
 		};
 
-		if (localSettings.driverPayType === "percentage") {
-			const percRate = parseFloat(localSettings.percentageRate);
-			if (isNaN(percRate) || percRate < 0 || percRate > 100) {
-				setSaveError("Percentage Rate must be a number between 0 and 100.");
+		const percRate = parseFloat(localSettings.percentageRate);
+		if (isNaN(percRate) || percRate < 0 || percRate > 100) {
+			setSaveError("Linehaul rate (%) must be a number from 0 to 100.");
+			return;
+		}
+		settingsToSave.percentageRate = percRate / 100;
+
+		const parsePerMile = (raw, label) => {
+			if (raw === undefined || String(raw).trim() === "") return 0;
+			const n = parseFloat(raw);
+			if (isNaN(n) || n < 0 || n > 1000) {
+				setSaveError(`${label} must be a number from 0 to 1000 dollars per mile.`);
+				return null;
+			}
+			return n;
+		};
+
+		const fuel = parsePerMile(localSettings.fuelRoadUseTax, "Fuel road use tax");
+		if (fuel === null) return;
+		settingsToSave.fuelRoadUseTax = fuel;
+
+		const maint = parsePerMile(localSettings.maintenanceReserve, "Maintenance reserve");
+		if (maint === null) return;
+		settingsToSave.maintenanceReserve = maint;
+
+		const bond = parsePerMile(localSettings.bondDeposit, "Bond deposit");
+		if (bond === null) return;
+		settingsToSave.bondDeposit = bond;
+
+		const mrp = parsePerMile(localSettings.mrpFee, "MRP fee");
+		if (mrp === null) return;
+		settingsToSave.mrpFee = mrp;
+
+		const fixedExpenses = {};
+		for (const { key, label } of FIXED_EXPENSE_FIELDS) {
+			const raw = fixedLocal[key];
+			if (raw === undefined || String(raw).trim() === "") {
+				fixedExpenses[key] = 0;
+				continue;
+			}
+			const n = parseFloat(raw);
+			if (isNaN(n) || n < 0) {
+				setSaveError(`Invalid amount for ${label}. Use 0 or a positive number.`);
 				return;
 			}
-			settingsToSave.percentageRate = percRate / 100;
-		} else {
-			settingsToSave.percentageRate = null;
+			fixedExpenses[key] = n;
 		}
-
-		const fuelTaxRate = parseFloat(localSettings.fuelRoadUseTax);
-		if (isNaN(fuelTaxRate) || fuelTaxRate < 0 || fuelTaxRate > 100) {
-			setSaveError("Fuel Road Use Tax must be a number between 0 and 100.");
-			return;
-		}
-		settingsToSave.fuelRoadUseTax = fuelTaxRate / 100;
-
-		const maintenanceReserve = parseFloat(localSettings.maintenanceReserve);
-		if (isNaN(maintenanceReserve) || maintenanceReserve < 0 || maintenanceReserve > 100) {
-			setSaveError("Maintenance Reserve must be a number between 0 and 100.");
-			return;
-		}
-		settingsToSave.maintenanceReserve = maintenanceReserve / 100;
-
-		const bondDeposit = parseFloat(localSettings.bondDeposit);
-		if (isNaN(bondDeposit) || bondDeposit < 0 || bondDeposit > 100) {
-			setSaveError("Bond Deposit must be a number between 0 and 100.");
-			return;
-		}
-		settingsToSave.bondDeposit = bondDeposit / 100;
-
-		const mrpFee = parseFloat(localSettings.mrpFee);
-		if (isNaN(mrpFee) || mrpFee < 0 || mrpFee > 100) {
-			setSaveError("MRP Fee must be a number between 0 and 100.");
-			return;
-		}
-		settingsToSave.mrpFee = mrpFee / 100;
+		settingsToSave.fixedExpenses = fixedExpenses;
 
 		const resultAction = await dispatch(saveUserSettings(settingsToSave));
 		if (saveUserSettings.fulfilled.match(resultAction)) {
@@ -150,7 +180,7 @@ function Settings({ open, onClose }) {
 
 	return (
 		<>
-			<Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+			<Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
 				<DialogTitle>Settings</DialogTitle>
 				<DialogContent dividers>
 					{settingsError && (
@@ -166,106 +196,137 @@ function Settings({ open, onClose }) {
 							{saveError}
 						</Alert>
 					)}
-					{loading && !settings?.driverPayType ? (
+					{loading ? (
 						<CircularProgress />
 					) : (
 						<form id="settings-form" onSubmit={handleSubmit}>
-							<Grid container spacing={3} sx={{ mt: 0 }}>
-								<Grid item xs={12}>
-									<FormControl component="fieldset">
-										<FormLabel component="legend">Driver Pay Type</FormLabel>
-										<RadioGroup
-											row
-											name="driverPayType"
-											value={localSettings.driverPayType || "percentage"}
-											onChange={handleRadioChange}
-										>
-											<FormControlLabel
-												value="percentage"
-												control={<Radio />}
-												label="Percentage Based"
-											/>
-											<FormControlLabel
-												value="mileage"
-												control={<Radio />}
-												label="Mileage Based"
-											/>
-										</RadioGroup>
-									</FormControl>
-								</Grid>
+							<Tabs
+								value={tab}
+								onChange={(_, v) => setTab(v)}
+								variant="scrollable"
+								scrollButtons="auto"
+								aria-label="Settings sections"
+							>
+								<Tab label="Pay & variable deductions" id="settings-tab-0" />
+								<Tab label="Fixed expenses" id="settings-tab-1" />
+							</Tabs>
 
-								{localSettings.driverPayType === "percentage" && (
+							<TabPanel value={tab} index={0}>
+								<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+									Deductions below are dollars per mile on the load. Linehaul rate
+									(%) is your percentage share of linehaul pay on each load (not
+									per mile).
+								</Typography>
+								<Grid container spacing={3}>
 									<Grid item xs={12} sm={6}>
 										<TextField
-											label="Percentage Rate (%)"
+											label="Linehaul rate (%)"
 											type="number"
 											name="percentageRate"
 											value={localSettings.percentageRate}
 											onChange={handleInputChange}
 											fullWidth
-											helperText="e.g. 68 for 68%"
+											helperText="Percentage of linehaul: 0–100 (e.g. 68 for 68%)"
 											inputProps={{ min: "0", max: "100", step: "0.01" }}
 										/>
 									</Grid>
-								)}
-
-								{localSettings.driverPayType === "mileage" && (
-									<Grid item xs={12}>
-										<Typography variant="body2" color="textSecondary">
-											Mileage-based pay configuration coming soon.
-										</Typography>
+									<Grid item xs={12} sm={6}>
+										<TextField
+											label="Fuel road use tax"
+											type="number"
+											name="fuelRoadUseTax"
+											value={localSettings.fuelRoadUseTax}
+											onChange={handleInputChange}
+											fullWidth
+											helperText="Dollars per mile"
+											inputProps={{ min: "0", max: "1000", step: "0.001" }}
+											InputProps={{
+												startAdornment: (
+													<InputAdornment position="start">$</InputAdornment>
+												),
+											}}
+										/>
 									</Grid>
-								)}
+									<Grid item xs={12} sm={6}>
+										<TextField
+											label="Maintenance reserve"
+											type="number"
+											name="maintenanceReserve"
+											value={localSettings.maintenanceReserve}
+											onChange={handleInputChange}
+											fullWidth
+											helperText="Dollars per mile"
+											inputProps={{ min: "0", max: "1000", step: "0.001" }}
+											InputProps={{
+												startAdornment: (
+													<InputAdornment position="start">$</InputAdornment>
+												),
+											}}
+										/>
+									</Grid>
+									<Grid item xs={12} sm={6}>
+										<TextField
+											label="Bond deposit"
+											type="number"
+											name="bondDeposit"
+											value={localSettings.bondDeposit}
+											onChange={handleInputChange}
+											fullWidth
+											helperText="Dollars per mile"
+											inputProps={{ min: "0", max: "1000", step: "0.001" }}
+											InputProps={{
+												startAdornment: (
+													<InputAdornment position="start">$</InputAdornment>
+												),
+											}}
+										/>
+									</Grid>
+									<Grid item xs={12} sm={6}>
+										<TextField
+											label="MRP fee"
+											type="number"
+											name="mrpFee"
+											value={localSettings.mrpFee}
+											onChange={handleInputChange}
+											fullWidth
+											helperText="Dollars per mile"
+											inputProps={{ min: "0", max: "1000", step: "0.001" }}
+											InputProps={{
+												startAdornment: (
+													<InputAdornment position="start">$</InputAdornment>
+												),
+											}}
+										/>
+									</Grid>
+								</Grid>
+							</TabPanel>
 
-								<Grid item xs={12} sm={6}>
-									<TextField
-										label="Fuel Road Use Tax (cents)"
-										type="number"
-										name="fuelRoadUseTax"
-										value={localSettings.fuelRoadUseTax}
-										onChange={handleInputChange}
-										fullWidth
-										helperText="e.g. 7.5 for 7.5 cents"
-										inputProps={{ min: "0", max: "100", step: "0.01" }}
-									/>
+							<TabPanel value={tab} index={1}>
+								<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+									Fixed dollar amounts (per settlement period you use—typically
+									weekly). Stored only for your account. Leave blank to treat as
+									$0.
+								</Typography>
+								<Grid container spacing={2}>
+									{FIXED_EXPENSE_FIELDS.map(({ key, label }) => (
+										<Grid item xs={12} sm={6} key={key}>
+											<TextField
+												label={label}
+												type="number"
+												value={fixedLocal[key] ?? ""}
+												onChange={handleFixedChange(key)}
+												fullWidth
+												inputProps={{ min: "0", step: "0.01" }}
+												InputProps={{
+													startAdornment: (
+														<InputAdornment position="start">$</InputAdornment>
+													),
+												}}
+											/>
+										</Grid>
+									))}
 								</Grid>
-								<Grid item xs={12} sm={6}>
-									<TextField
-										label="Maintenance Reserve (%)"
-										type="number"
-										name="maintenanceReserve"
-										value={localSettings.maintenanceReserve}
-										onChange={handleInputChange}
-										fullWidth
-										helperText="e.g. 7.5 for 7.5%"
-										inputProps={{ min: "0", max: "100", step: "0.01" }}
-									/>
-								</Grid>
-								<Grid item xs={12} sm={6}>
-									<TextField
-										label="Bond Deposit (%)"
-										type="number"
-										name="bondDeposit"
-										value={localSettings.bondDeposit}
-										onChange={handleInputChange}
-										fullWidth
-										helperText="e.g. 7.5 for 7.5%"
-										inputProps={{ min: "0", max: "100", step: "0.01" }}
-									/>
-								</Grid>
-								<Grid item xs={12} sm={6}>
-									<TextField
-										label="MRP Fee (%)"
-										type="number"
-										name="mrpFee"
-										value={localSettings.mrpFee}
-										onChange={handleInputChange}
-										fullWidth
-										helperText="e.g. 7.5 for 7.5%"
-										inputProps={{ min: "0", max: "100", step: "0.01" }}
-									/>
-								</Grid>
-							</Grid>
+							</TabPanel>
 						</form>
 					)}
 				</DialogContent>

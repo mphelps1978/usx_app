@@ -1,0 +1,55 @@
+{
+  "name": "usx-ic-books-desktop",
+  "version": "0.6.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build:interface": "cd ../interface && npm run build",
+    "pack": "npm run build:interface && electron-builder --win dir",
+    "dist": "npm run build:interface && electron-builder --win nsis",
+    "shortcut-dev": "powershell -ExecutionPolicy Bypass -File ./create-dev-shortcut.ps1"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.usx.icbooks",
+    "productName": "USX IC Books",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json",
+      "scripts/wia-scan.ps1"
+    ],
+    "asarUnpack": [
+      "scripts/wia-scan.ps1"
+    ],
+    "extraResources": [
+      {
+        "from": "../interface/dist",
+        "to": "interface-dist",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis", "dir"],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "USX IC Books"
+    }
+  }
+}

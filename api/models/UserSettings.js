@@ -48,6 +48,11 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: 0.09
     },
+    /** Per-user fixed deductions (USD); keys match api/constants/fixedExpenses.js */
+    fixedExpenses: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
   },
     {
       timestamps: true, // Adds createdAt and updatedAt

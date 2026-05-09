@@ -39,7 +39,11 @@ import {
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import LocalGasStationIcon from "@mui/icons-material/LocalGasStation";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import { config } from "../config";
+import ScanReceiptDialog from "./ScanReceiptDialog";
+import { downloadReceiptFile } from "../store/slices/receiptsSlice";
 
 // Helper to format date for display and for date inputs
 const formatDateForDisplay = (dateString) => {
@@ -100,6 +104,7 @@ function FuelStops() {
 	const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
 	const [settleFormData, setSettleFormData] = useState({});
 	const [fuelStopToSettle, setFuelStopToSettle] = useState(null);
+	const [receiptFuelStop, setReceiptFuelStop] = useState(null);
 
 	useEffect(() => {
 		dispatch(fetchFuelStops());
@@ -309,6 +314,22 @@ function FuelStops() {
 				</Paper>
 			)}
 
+			<ScanReceiptDialog
+				open={Boolean(receiptFuelStop)}
+				onClose={() => setReceiptFuelStop(null)}
+				targetType="fuel_stop"
+				targetId={receiptFuelStop?.id}
+				suggestedDate={
+					receiptFuelStop
+						? formatDateForInput(receiptFuelStop.dateOfStop)
+						: ""
+				}
+				suggestedVendor={receiptFuelStop?.vendor}
+				onSuccess={() => {
+					dispatch(fetchFuelStops());
+				}}
+			/>
+
 			{!loading && !error && fuelStops.length > 0 && (
 				<TableContainer component={Paper} sx={{ boxShadow: 3 }}>
 					<Table sx={{ minWidth: 650 }} aria-label="fuel stops table">
@@ -327,6 +348,7 @@ function FuelStops() {
 								<TableCell align="center">Card Used?</TableCell>
 								<TableCell align="center">Discounted?</TableCell>
 								<TableCell align="right">Total Stop Cost</TableCell>
+								<TableCell align="center">Receipt</TableCell>
 								<TableCell align="center">Actions</TableCell>
 							</TableRow>
 						</TableHead>
@@ -387,6 +409,49 @@ function FuelStops() {
 									<TableCell align="right">
 										{/* Calculated: fs.totalFuelStop. Defaults to $0.00 if null/undefined. */}
 										{formatCurrency(fs.totalFuelStop)}
+									</TableCell>
+									<TableCell align="center">
+										{fs.receiptFileKey ? (
+											<Tooltip title="Download receipt">
+												<IconButton
+													size="small"
+													onClick={async (e) => {
+														e.stopPropagation();
+														try {
+															await downloadReceiptFile(
+																"fuel_stop",
+																fs.id,
+																authToken
+															);
+														} catch (err) {
+															console.error(err);
+															alert(
+																err?.response?.data?.message ||
+																	"Could not download receipt"
+															);
+														}
+													}}
+												>
+													<AttachFileIcon fontSize="small" />
+												</IconButton>
+											</Tooltip>
+										) : (
+											<Typography variant="caption" color="text.secondary">
+												—
+											</Typography>
+										)}
+										<Tooltip title="Attach or replace receipt">
+											<IconButton
+												size="small"
+												color="primary"
+												onClick={(e) => {
+													e.stopPropagation();
+													setReceiptFuelStop(fs);
+												}}
+											>
+												<ReceiptLongIcon fontSize="small" />
+											</IconButton>
+										</Tooltip>
 									</TableCell>
 									<TableCell align="center">
 										<Tooltip title="Edit Fuel Stop">
@@ -561,6 +626,7 @@ function FuelStops() {
 								fullWidth
 								margin="dense"
 								inputProps={{ step: "1" }}
+								helperText="Optional; leave blank if you did not track mileage"
 							/>
 						</Grid>
 						<Grid item xs={12} sm={6}>

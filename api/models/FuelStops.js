@@ -21,6 +21,10 @@ module.exports = (sequelize) => {
     odometerReading: { type: DataTypes.FLOAT, allowNull: true },
     previousOdometer: { type: DataTypes.FLOAT, allowNull: true },
     calculatedMpg: { type: DataTypes.FLOAT, allowNull: true },
+    receiptFileKey: {
+      type: DataTypes.STRING(512),
+      allowNull: true,
+    },
 
   }, {
     timestamps: true,

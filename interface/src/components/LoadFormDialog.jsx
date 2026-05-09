@@ -144,16 +144,17 @@ function LoadFormDialog({ open, onClose }) {
 		]
 	);
 
-	const isFormActiveLoad =
-		!formData.dateDelivered || String(formData.dateDelivered).trim() === "";
-	const isFormDelivered =
-		Boolean(formData.dateDelivered) &&
-		String(formData.dateDelivered).trim() !== "";
-
 	const isEditing = !!(
 		formData.proNumber &&
 		loadsForTable.some((l) => l.proNumber === formData.proNumber)
 	);
+
+	const optionalNumber = (raw) => {
+		if (raw === undefined || raw === null || String(raw).trim() === "")
+			return null;
+		const n = parseFloat(raw);
+		return Number.isNaN(n) ? null : n;
+	};
 
 	const handleSubmitModal = async (e) => {
 		e.preventDefault();
@@ -180,34 +181,23 @@ function LoadFormDialog({ open, onClose }) {
 		}
 
 		const startOd = parseOdometerField(formData.startingOdometer);
-		if (isAttemptingActive && startOd === null) {
-			setModalError("Starting odometer is required for an active load.");
+		const pickOd = parseOdometerField(formData.loadedStartOdometer);
+		const endOd = parseOdometerField(formData.endingOdometer);
+		if (
+			startOd != null &&
+			pickOd != null &&
+			endOd != null &&
+			!(startOd < pickOd && pickOd < endOd)
+		) {
+			setModalError(
+				"Odometer readings must satisfy starting < pickup (loaded start) < ending."
+			);
 			return;
 		}
 
-		const hasDeliveryDate =
-			Boolean(formData.dateDelivered) &&
-			String(formData.dateDelivered).trim() !== "";
-		if (hasDeliveryDate) {
-			const pickOd = parseOdometerField(formData.loadedStartOdometer);
-			const endOd = parseOdometerField(formData.endingOdometer);
-			if (startOd === null || pickOd === null || endOd === null) {
-				setModalError(
-					"Delivered loads require starting odometer, odometer at pickup (loaded start), and ending odometer."
-				);
-				return;
-			}
-			if (!(startOd < pickOd && pickOd < endOd)) {
-				setModalError(
-					"Odometer readings must satisfy starting < pickup (loaded start) < ending."
-				);
-				return;
-			}
-		}
-
 		const currentTotalMiles =
-			(parseFloat(formData.deadheadMiles) || 0) +
-			(parseFloat(formData.loadedMiles) || 0);
+			(optionalNumber(formData.deadheadMiles) || 0) +
+			(optionalNumber(formData.loadedMiles) || 0);
 		const fuelRoadUseDeduction =
 			currentTotalMiles * (parseFloat(userSettings?.fuelRoadUseTax) || 0);
 		const maintenanceReserveDeduction =
@@ -221,12 +211,12 @@ function LoadFormDialog({ open, onClose }) {
 			...formData,
 			dateDispatched: formData.dateDispatched || null,
 			dateDelivered: formData.dateDelivered || null,
-			deadheadMiles: parseFloat(formData.deadheadMiles) || 0,
-			loadedMiles: parseFloat(formData.loadedMiles) || 0,
-			weight: parseFloat(formData.weight) || 0,
+			deadheadMiles: optionalNumber(formData.deadheadMiles),
+			loadedMiles: optionalNumber(formData.loadedMiles),
+			weight: optionalNumber(formData.weight),
 			startingOdometer: startOd,
-			loadedStartOdometer: parseOdometerField(formData.loadedStartOdometer),
-			endingOdometer: parseOdometerField(formData.endingOdometer),
+			loadedStartOdometer: pickOd,
+			endingOdometer: endOd,
 			actualDeadheadMiles: odometerDerived.actualDeadheadMiles,
 			actualLoadedMiles: odometerDerived.actualLoadedMiles,
 			actualMiles: odometerDerived.actualMiles,
@@ -429,13 +419,13 @@ function LoadFormDialog({ open, onClose }) {
 							label="Deadhead Miles"
 							type="number"
 							name="deadheadMiles"
-							value={formData.deadheadMiles || ""}
+							value={formData.deadheadMiles ?? ""}
 							onChange={(e) =>
 								dispatch(updateFormData({ deadheadMiles: e.target.value }))
 							}
 							fullWidth
-							required
 							margin="dense"
+							helperText="Optional for historical loads"
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>
@@ -443,13 +433,13 @@ function LoadFormDialog({ open, onClose }) {
 							label="Loaded Miles"
 							type="number"
 							name="loadedMiles"
-							value={formData.loadedMiles || ""}
+							value={formData.loadedMiles ?? ""}
 							onChange={(e) =>
 								dispatch(updateFormData({ loadedMiles: e.target.value }))
 							}
 							fullWidth
-							required
 							margin="dense"
+							helperText="Optional for historical loads"
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>
@@ -457,13 +447,13 @@ function LoadFormDialog({ open, onClose }) {
 							label="Weight (lbs)"
 							type="number"
 							name="weight"
-							value={formData.weight || ""}
+							value={formData.weight ?? ""}
 							onChange={(e) =>
 								dispatch(updateFormData({ weight: e.target.value }))
 							}
 							fullWidth
-							required
 							margin="dense"
+							helperText="Optional"
 						/>
 					</Grid>
 					{userSettings?.driverPayType === "percentage" && (
@@ -581,13 +571,8 @@ function LoadFormDialog({ open, onClose }) {
 							onChange={handleInputChange}
 							fullWidth
 							margin="dense"
-							required={isFormActiveLoad}
 							inputProps={{ step: "1" }}
-							helperText={
-								isFormActiveLoad
-									? "Required before dispatch (tax / odometer tracking)"
-									: ""
-							}
+							helperText="Optional; used for tax / actual miles when all three are set"
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>
@@ -599,13 +584,8 @@ function LoadFormDialog({ open, onClose }) {
 							onChange={handleInputChange}
 							fullWidth
 							margin="dense"
-							required={isFormDelivered}
 							inputProps={{ step: "1" }}
-							helperText={
-								isFormDelivered
-									? "Required when delivery date is set"
-									: "After deadhead, before loaded miles"
-							}
+							helperText="Optional; after deadhead, before loaded miles"
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>
@@ -617,11 +597,8 @@ function LoadFormDialog({ open, onClose }) {
 							onChange={handleInputChange}
 							fullWidth
 							margin="dense"
-							required={isFormDelivered}
 							inputProps={{ step: "1" }}
-							helperText={
-								isFormDelivered ? "Required when delivery date is set" : ""
-							}
+							helperText="Optional"
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>
