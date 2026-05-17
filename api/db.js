@@ -1,15 +1,26 @@
 // db.js
 const fs = require('fs');
+const path = require('path');
 const { execSync } = require('child_process');
 const { Sequelize } = require('sequelize');
-// const path = require('path'); // path module is not strictly needed here if .env is loaded by server.js
 
-// It's assumed that 'dotenv' is configured in the main application entry point (e.g., server.js)
-// by calling require('dotenv').config() at the very top.
-// This ensures process.env variables are populated before this db.js module is loaded.
+// Local dev: api/.env. Production (Dockploy): set DATABASE_URL on the API service (runtime env).
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-// Retrieve the DATABASE_URL from environment variables.
-const dbUrl = process.env.DATABASE_URL;
+function resolveDatabaseUrl() {
+  const candidates = [
+    process.env.DATABASE_URL,
+    process.env.Database_URL,
+    process.env.POSTGRES_URL,
+    process.env.POSTGRES_PRISMA_URL,
+  ];
+  for (const raw of candidates) {
+    if (raw && String(raw).trim()) return String(raw).trim();
+  }
+  return '';
+}
+
+const dbUrl = resolveDatabaseUrl();
 
 /** Hostname from a postgres URL, for SSL heuristics and safe logging. */
 function postgresConnectionTarget(url) {
@@ -114,8 +125,16 @@ function useSslForPostgres(url) {
 // If DATABASE_URL is not found, log a fatal error and exit.
 // This prevents the application from trying to run without a database configuration.
 if (!dbUrl) {
-  console.error('[DB] FATAL: DATABASE_URL is not defined. Ensure .env is loaded by the application entry point (e.g., server.js).');
-  process.exit(1); // Exit the process with an error code.
+  const envKeys = Object.keys(process.env).filter((k) => /database|postgres|db_url/i.test(k));
+  console.error('[DB] FATAL: DATABASE_URL is not defined.');
+  console.error('[DB] Set runtime env DATABASE_URL on the API service in Dockploy (exact name, all caps).');
+  console.error('[DB] No .env file is baked into the Docker image; Dockploy must inject variables at run time.');
+  if (envKeys.length) {
+    console.error('[DB] Related env keys present:', envKeys.join(', '));
+  } else {
+    console.error('[DB] No database-related env keys found in process.env.');
+  }
+  process.exit(1);
 }
 
 const resolvedDbUrl = rewriteDatabaseUrlForWslWindowsPostgres(dbUrl);
@@ -261,9 +280,19 @@ async function initializeDatabaseAndModels() {
       await sequelize.sync();
       console.log('[DB] SQLite tables synced successfully!');
     } else {
-      // For PostgreSQL, use alter for schema updates
-      await sequelize.sync({ alter: true });
-      console.log('[DB] PostgreSQL tables synced successfully!');
+      // alter:true re-validates FKs against existing rows — fails after a partial pg_restore
+      // (e.g. FuelStops without matching Loads). Production: create missing tables only.
+      const forceAlter = process.env.DB_SYNC_ALTER === 'true' || process.env.DB_SYNC_ALTER === '1';
+      const skipAlter = process.env.DB_SYNC_ALTER === 'false' || process.env.DB_SYNC_ALTER === '0';
+      const isProduction = process.env.NODE_ENV === 'production';
+      const useAlter = forceAlter || (!skipAlter && !isProduction);
+      if (useAlter) {
+        await sequelize.sync({ alter: true });
+        console.log('[DB] PostgreSQL tables synced (alter mode).');
+      } else {
+        await sequelize.sync();
+        console.log('[DB] PostgreSQL tables synced (no alter).');
+      }
       await syncPostgresIdSequences(sequelize);
     }
 

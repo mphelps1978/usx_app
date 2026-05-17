@@ -1,12 +1,19 @@
 // server.js
-require('dotenv').config(); // Load environment variables at the very beginning
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+if (!process.env.DATABASE_URL && !process.env.Database_URL) {
+  console.warn('[SERVER] DATABASE_URL is not set yet (expected in Dockploy runtime environment).');
+} else {
+  console.log('[SERVER] DATABASE_URL is set.');
+}
+
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs'); // Import bcrypt
 // Import the promise from db.js which will resolve with models and sequelize
 const fs = require('fs'); // For file system logging (optional)
-const path = require('path');
 const multer = require('multer');
 const dbPromise = require('./db');
 const receiptStorage = require('./utils/receiptStorage');
