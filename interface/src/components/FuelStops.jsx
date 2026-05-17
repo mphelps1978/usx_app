@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLocation, useNavigate } from "react-router-dom"; // Import useLocation and useNavigate
 import {
@@ -105,6 +105,21 @@ function FuelStops() {
 	const [settleFormData, setSettleFormData] = useState({});
 	const [fuelStopToSettle, setFuelStopToSettle] = useState(null);
 	const [receiptFuelStop, setReceiptFuelStop] = useState(null);
+
+	const sortedFuelStops = useMemo(() => {
+		const parseStopMs = (dateStr) => {
+			if (!dateStr) return 0;
+			const s = String(dateStr).trim();
+			const d = new Date(s.includes("T") ? s : `${s}T00:00:00`);
+			const t = d.getTime();
+			return Number.isNaN(t) ? 0 : t;
+		};
+		return [...fuelStops].sort((a, b) => {
+			const diff = parseStopMs(b.dateOfStop) - parseStopMs(a.dateOfStop);
+			if (diff !== 0) return diff;
+			return (b.id ?? 0) - (a.id ?? 0);
+		});
+	}, [fuelStops]);
 
 	useEffect(() => {
 		dispatch(fetchFuelStops());
@@ -330,7 +345,7 @@ function FuelStops() {
 				}}
 			/>
 
-			{!loading && !error && fuelStops.length > 0 && (
+			{!loading && !error && sortedFuelStops.length > 0 && (
 				<TableContainer component={Paper} sx={{ boxShadow: 3 }}>
 					<Table sx={{ minWidth: 650 }} aria-label="fuel stops table">
 						<TableHead sx={{ backgroundColor: "grey.200" }}>
@@ -353,7 +368,7 @@ function FuelStops() {
 							</TableRow>
 						</TableHead>
 						<TableBody>
-							{fuelStops.map((fs) => (
+							{sortedFuelStops.map((fs) => (
 								<TableRow
 									key={fs.id}
 									sx={{ "&:last-child td, &:last-child th": { border: 0 } }}

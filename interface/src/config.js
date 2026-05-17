@@ -1,5 +1,9 @@
 // Configuration for API endpoints
-// Optional: set VITE_API_URL in Vercel (e.g. https://xxx.up.railway.app/api) if the hostname check is wrong.
+//
+// Dockploy (split services): set build arg on the frontend service:
+//   VITE_API_URL=https://api.usxicbooks.cloud/api
+//
+// Local dev: Vite on :5173, API on :3001 (no VITE_API_URL needed).
 
 const normalizeApiBase = (raw) => {
   const trimmed = raw.replace(/\/$/, '');
@@ -11,6 +15,20 @@ const isSupabaseFunctionApiUrl = (raw) => {
   if (!raw) return false;
   const value = String(raw).toLowerCase();
   return value.includes(".supabase.co/functions/v1");
+};
+
+/** True when the UI is opened via a typical LAN IP (tablet/phone on same Wi‑Fi as the dev PC). */
+const isPrivateLanIPv4 = (hostname) => {
+  if (!hostname || typeof hostname !== "string") return false;
+  const parts = hostname.split(".").map((p) => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
 };
 
 const getApiConfig = () => {
@@ -35,20 +53,23 @@ const getApiConfig = () => {
   const isLocalDev =
     hostname === 'localhost' ||
     hostname === '127.0.0.1' ||
-    hostname === '[::1]';
+    hostname === '[::1]' ||
+    isPrivateLanIPv4(hostname);
 
   if (!isLocalDev) {
-    // Guardrail: if VITE_API_URL was mistakenly set to a Supabase Functions endpoint,
-    // ignore it and use the known hosted REST API base instead.
+    console.warn(
+      '[config] VITE_API_URL was not set at build time. API calls may fail on split frontend/backend deploys.',
+    );
+    const origin = window.location.origin.replace(/\/$/, '');
     return {
-      apiUrl: 'https://usxapp-production.up.railway.app/api',
-      frontendUrl: 'https://usx-app-ten.vercel.app',
+      apiUrl: `${origin}/api`,
+      frontendUrl: origin,
       environment: 'production',
     };
   }
 
   return {
-    apiUrl: 'http://localhost:3001/api',
+    apiUrl: `http://${hostname}:3001/api`,
     frontendUrl: `http://${hostname}:5173`,
     environment: 'development',
   };

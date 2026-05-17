@@ -89,6 +89,29 @@ function computeLoadOdometerDerived({ startingOdometer, loadedStartOdometer, end
 
 const app = express();
 
+if (process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
+/** Hostname from DEPLOYMENT_DOMAIN (e.g. usxicbooks.cloud or https://usxicbooks.cloud). */
+function getDeploymentDomainHost() {
+  const raw = (process.env.DEPLOYMENT_DOMAIN || '').trim().toLowerCase();
+  if (!raw) return '';
+  try {
+    if (raw.includes('://')) {
+      return new URL(raw).hostname;
+    }
+  } catch {
+    /* fall through */
+  }
+  return raw.replace(/\/.*$/, '').split(':')[0];
+}
+
+const deploymentDomainHost = getDeploymentDomainHost();
+if (deploymentDomainHost) {
+  console.log(`[SERVER] CORS deployment domain: ${deploymentDomainHost} (https + optional http via ALLOW_HTTP_ORIGINS)`);
+}
+
 const defaultAllowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -99,19 +122,67 @@ const defaultAllowedOrigins = [
   'https://www.usx-app-ten.vercel.app',
   'https://usxapp-production.up.railway.app',
 ];
+const envFrontendOrigin = (process.env.FRONTEND_URL || '').trim();
 const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
-const allowedOrigins = [...new Set([...defaultAllowedOrigins, ...extraOrigins])];
+const allowedOrigins = [...new Set([
+  ...defaultAllowedOrigins,
+  ...(envFrontendOrigin ? [envFrontendOrigin.replace(/\/$/, '')] : []),
+  ...extraOrigins,
+])];
+if (envFrontendOrigin) {
+  console.log(`[SERVER] CORS frontend origin: ${envFrontendOrigin.replace(/\/$/, '')}`);
+}
 
 function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
   if (allowedOrigins.includes(origin)) return true;
+  if (deploymentDomainHost) {
+    try {
+      const u = new URL(origin);
+      const allowHttp =
+        process.env.ALLOW_HTTP_ORIGINS === 'true' || process.env.ALLOW_HTTP_ORIGINS === '1';
+      const okProtocol = u.protocol === 'https:' || (allowHttp && u.protocol === 'http:');
+      if (okProtocol) {
+        const h = u.hostname.toLowerCase();
+        const base = deploymentDomainHost;
+        const wwwBase = base.startsWith('www.') ? base.slice(4) : base;
+        if (
+          h === base ||
+          h === `www.${wwwBase}` ||
+          h === wwwBase ||
+          h.endsWith(`.${wwwBase}`)
+        ) {
+          return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   if (/^https:\/\/.+\.vercel\.app$/i.test(origin)) return true;
   // Electron / local static server on ephemeral port
   if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return true;
   if (/^http:\/\/localhost:\d+$/.test(origin)) return true;
+  // Phone/tablet on same Wi‑Fi hitting Vite on this machine (e.g. http://192.168.1.10:5173)
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'http:') return false;
+    const parts = u.hostname.split('.').map((x) => parseInt(x, 10));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) {
+      return false;
+    }
+    const [a, b] = parts;
+    const isPrivate =
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168);
+    if (isPrivate) return true;
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
@@ -132,6 +203,10 @@ app.use(cors({
   exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 app.use(express.json());
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 const uploadReceiptMemory = multer({
   storage: multer.memoryStorage(),
@@ -1453,9 +1528,39 @@ async function startServer() {
       }
     });
 
+    app.get('/api/health/ready', async (req, res) => {
+      try {
+        await sequelize.authenticate();
+        res.json({ status: 'ready' });
+      } catch (err) {
+        res.status(503).json({ status: 'not_ready', message: err.message });
+      }
+    });
+
+    if (process.env.SERVE_STATIC === 'true' || process.env.SERVE_STATIC === '1') {
+      const distPath = path.resolve(__dirname, '..', 'interface', 'dist');
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        app.use(express.static(distPath, { index: false }));
+        app.get('*', (req, res, next) => {
+          if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+          if (req.path.startsWith('/api')) return next();
+          res.sendFile(indexPath, (err) => {
+            if (err) next(err);
+          });
+        });
+        console.log('[SERVER] Serving frontend static assets from', distPath);
+      } else {
+        console.warn('[SERVER] SERVE_STATIC is set but frontend build not found at', distPath);
+      }
+    }
+
     // Start the Express server
     const PORT = process.env.PORT || 3001;
-    app.listen(PORT, () => console.log(`[SERVER] Server running on port ${PORT} after DB initialization.`));
+    const HOST = process.env.HOST || '0.0.0.0';
+    app.listen(PORT, HOST, () => {
+      console.log(`[SERVER] Server running on http://${HOST}:${PORT} after DB initialization.`);
+    });
 
   } catch (error) {
     // This catch is for errors during dbPromise resolution or critical setup errors

@@ -42,6 +42,7 @@ import {
 	DialogContent,
 	DialogActions,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 // import ChartCaptureButton from "./ChartCaptureButton"; // Disabled - kept for debugging
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
@@ -94,6 +95,90 @@ function readExcludedProsForWeek(closingWedStr) {
 	} catch {
 		return [];
 	}
+}
+
+/** Makes headline averages / totals easy to scan vs surrounding caption text */
+function DashboardStatCallout({
+	label,
+	value,
+	detail,
+	size = "medium",
+	centered = false,
+	layout = "default",
+}) {
+	const isStrip = layout === "strip";
+	const valueVariant =
+		size === "large" && !isStrip ? "h4" : isStrip ? "h5" : "h5";
+	const textAlign = isStrip || centered ? "center" : "left";
+	const horizontalPad =
+		centered && !isStrip ? 2 : isStrip ? 1.25 : 1.5;
+	return (
+		<Box
+			sx={(theme) => ({
+				mb: isStrip ? 0 : centered ? 0 : 1.25,
+				width: isStrip ? "100%" : "auto",
+				alignSelf: isStrip ? "stretch" : undefined,
+				minWidth: 0,
+				boxSizing: "border-box",
+				py: isStrip ? 1.15 : 1.35,
+				px: horizontalPad,
+				borderRadius: 2,
+				textAlign,
+				backgroundColor: alpha(theme.palette.primary.main, 0.1),
+				border: "1px solid",
+				borderColor: alpha(theme.palette.primary.main, 0.28),
+				boxShadow: `0 1px 0 ${alpha(theme.palette.common.black, 0.04)} inset`,
+				...(isStrip
+					? {
+							display: "flex",
+							flexDirection: "column",
+							justifyContent: "center",
+							minHeight: { xs: "8rem", sm: "8.25rem" },
+						}
+					: {}),
+			})}
+		>
+			<Typography
+				variant="overline"
+				color="text.secondary"
+				sx={{
+					display: "block",
+					lineHeight: 1.25,
+					fontWeight: 700,
+					letterSpacing: isStrip ? "0.06em" : "0.09em",
+					fontSize: isStrip ? "0.62rem" : "0.65rem",
+				}}
+			>
+				{label}
+			</Typography>
+			<Typography
+				variant={valueVariant}
+				component="p"
+				sx={{
+					fontWeight: 800,
+					color: "primary.main",
+					letterSpacing: "-0.03em",
+					lineHeight: 1.15,
+					my: 0.35,
+				}}
+			>
+				{value}
+			</Typography>
+			{detail ? (
+				<Typography
+					variant="caption"
+					color="text.secondary"
+					sx={{
+						display: "block",
+						lineHeight: 1.45,
+						maxWidth: "100%",
+					}}
+				>
+					{detail}
+				</Typography>
+			) : null}
+		</Box>
+	);
 }
 
 function Dashboard() {
@@ -341,6 +426,16 @@ function Dashboard() {
 		}
 		return 0;
 	});
+
+	let rpmWindowMiles = 0;
+	let rpmWindowNet = 0;
+	for (const key of sortedWeekKeys) {
+		const w = weeklyMilesAndRevenue[key];
+		rpmWindowMiles += w.totalMiles;
+		rpmWindowNet += w.totalNetRevenue;
+	}
+	const periodAvgNetRevenuePerMile =
+		rpmWindowMiles > 0 ? rpmWindowNet / rpmWindowMiles : null;
 
 	const netRevenuePerMileData = {
 		labels: weeklyChartLabels,
@@ -646,9 +741,12 @@ function Dashboard() {
 		});
 
 		const settlementLoads = [...inPeriod].sort((a, b) => {
-			const da = String(a.dateDelivered).localeCompare(String(b.dateDelivered));
-			if (da !== 0) return da;
-			return String(a.proNumber).localeCompare(String(b.proNumber));
+			const da = new Date(`${a.dateDelivered}T00:00:00Z`).getTime();
+			const db = new Date(`${b.dateDelivered}T00:00:00Z`).getTime();
+			const na = Number.isNaN(da) ? 0 : da;
+			const nb = Number.isNaN(db) ? 0 : db;
+			if (nb !== na) return nb - na;
+			return String(b.proNumber).localeCompare(String(a.proNumber));
 		});
 
 		return { settlementLoads, periodLabel, closingWedStr };
@@ -714,6 +812,183 @@ function Dashboard() {
 			<Typography variant="h4" gutterBottom component="h2" sx={{ mb: 1 }}>
 				Dashboard
 			</Typography>
+
+			<Paper
+				variant="outlined"
+				component="section"
+				aria-label="Key metrics at a glance"
+				sx={{
+					p: { xs: 1.5, sm: 2 },
+					mb: 2,
+					borderRadius: 2,
+					backgroundColor: "background.paper",
+				}}
+			>
+				<Typography
+					variant="subtitle2"
+					component="h3"
+					sx={{ fontWeight: 700, mb: 1.5, letterSpacing: "0.02em" }}
+				>
+					At a glance
+				</Typography>
+				<Grid container spacing={0}>
+					<Grid
+						item
+						xs={12}
+						md={4}
+						sx={(theme) => ({
+							p: { xs: 0, md: 1 },
+							px: { xs: 1.5, md: 2 },
+							borderRight: { md: `1px solid ${theme.palette.divider}` },
+							borderBottom: {
+								xs: `1px solid ${theme.palette.divider}`,
+								md: "none",
+							},
+							pb: { xs: 2, md: 0 },
+						})}
+					>
+						<Box
+							sx={{
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "stretch",
+								width: "100%",
+							}}
+						>
+							<DashboardStatCallout
+								layout="strip"
+								label="Settlement projection"
+								value={`$${settlementTotal.toFixed(2)}`}
+								detail={periodLabel}
+							/>
+						</Box>
+					</Grid>
+					<Grid
+						item
+						xs={12}
+						md={4}
+						sx={(theme) => ({
+							p: { xs: 0, md: 1 },
+							px: { xs: 1.5, md: 2 },
+							borderRight: { md: `1px solid ${theme.palette.divider}` },
+							borderBottom: {
+								xs: `1px solid ${theme.palette.divider}`,
+								md: "none",
+							},
+							py: { xs: 2, md: 0 },
+						})}
+					>
+						<Box
+							sx={{
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "stretch",
+								width: "100%",
+							}}
+						>
+							<DashboardStatCallout
+								layout="strip"
+								label="Avg net revenue / mi"
+								value={
+									periodAvgNetRevenuePerMile != null
+										? `$${periodAvgNetRevenuePerMile.toFixed(2)}/mi`
+										: "—"
+								}
+								detail="~2 mo. · same weeks as chart · net ÷ dispatched mi"
+							/>
+						</Box>
+					</Grid>
+					<Grid
+						item
+						xs={12}
+						md={4}
+						sx={{
+							p: { xs: 0, md: 1 },
+							px: { xs: 1.5, md: 2 },
+							pt: { xs: 2, md: 0 },
+						}}
+					>
+						<Box
+							sx={{
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "stretch",
+								width: "100%",
+							}}
+						>
+							<DashboardStatCallout
+								layout="strip"
+								label="Blended MPG"
+								value={
+									mpgStats.overallMpg
+										? `${mpgStats.overallMpg} MPG`
+										: "—"
+								}
+								detail={`~2 mo. · gallons-weighted · ${mpgStats.fillCount} fill-up${
+									mpgStats.fillCount !== 1 ? "s" : ""
+								} · ${mpgStats.totalGallons || "—"} gal`}
+							/>
+						</Box>
+					</Grid>
+				</Grid>
+
+				<Box
+					sx={(theme) => ({
+						borderTop: `1px solid ${theme.palette.divider}`,
+						mt: 2,
+						pt: 2,
+					})}
+				>
+					<Grid container spacing={0}>
+						<Grid
+							item
+							xs={12}
+							md={4}
+							sx={{
+								p: { xs: 0, md: 1 },
+								px: { xs: 1.5, md: 2 },
+							}}
+						>
+							<Box
+								sx={{
+									display: "flex",
+									flexDirection: "column",
+									alignItems: "center",
+									gap: 0.75,
+									width: "100%",
+									textAlign: "center",
+								}}
+							>
+								{settlementLoads.length > 0 ? (
+									<>
+										<Typography variant="caption" color="text.secondary">
+											{settlementIncludedCount === settlementLoads.length
+												? `${settlementLoads.length} load${
+														settlementLoads.length !== 1 ? "s" : ""
+													} in this period`
+												: `${settlementIncludedCount} of ${settlementLoads.length} load${
+														settlementLoads.length !== 1 ? "s" : ""
+													} counted in total`}
+										</Typography>
+										<Button
+											size="small"
+											variant="outlined"
+											onClick={() => setSettlementProsModalOpen(true)}
+										>
+											View / edit PROs in this period
+										</Button>
+									</>
+								) : (
+									<Typography variant="caption" color="text.secondary">
+										No delivered loads in this settlement window yet.
+									</Typography>
+								)}
+							</Box>
+						</Grid>
+					</Grid>
+				</Box>
+			</Paper>
+
 			<Stack direction="row" flexWrap="wrap" spacing={1} sx={{ mb: 2 }}>
 				<Button
 					variant="outlined"
@@ -730,45 +1005,6 @@ function Dashboard() {
 			/>
 
 			{/* <ChartCaptureButton /> */}{/* Disabled - kept for debugging */}
-
-			<Box sx={{ textAlign: "center", mb: 2 }}>
-				<Typography variant="subtitle1" sx={{ fontSize: "1.2rem" }}>
-					Projected Settlement Revenue ({periodLabel}):{" "}
-					<strong>${settlementTotal.toFixed(2)}</strong>
-				</Typography>
-				{settlementLoads.length > 0 ? (
-					<Box
-						sx={{
-							mt: 0.75,
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							gap: 0.75,
-						}}
-					>
-						<Typography variant="caption" color="text.secondary">
-							{settlementIncludedCount === settlementLoads.length
-								? `${settlementLoads.length} load${
-										settlementLoads.length !== 1 ? "s" : ""
-									} in this period`
-								: `${settlementIncludedCount} of ${settlementLoads.length} load${
-										settlementLoads.length !== 1 ? "s" : ""
-									} counted in total`}
-						</Typography>
-						<Button
-							size="small"
-							variant="outlined"
-							onClick={() => setSettlementProsModalOpen(true)}
-						>
-							View / edit PROs in this period
-						</Button>
-					</Box>
-				) : (
-					<Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
-						No delivered loads in this settlement window yet.
-					</Typography>
-				)}
-			</Box>
 
 			<Dialog
 				open={settlementProsModalOpen}
@@ -1059,6 +1295,14 @@ function Dashboard() {
 						<Typography variant="h6" gutterBottom component="h3">
 							Net Revenue per Mile
 						</Typography>
+						<Typography
+							variant="caption"
+							color="text.secondary"
+							display="block"
+							sx={{ mb: 1 }}
+						>
+							Weekly trend; the figure at the top matches this chart window.
+						</Typography>
 						<Box sx={{ flexGrow: 1, position: "relative" }}>
 							<Line data={netRevenuePerMileData} options={baseChartOptions} />
 						</Box>
@@ -1078,12 +1322,13 @@ function Dashboard() {
 						<Typography variant="h6" gutterBottom component="h3">
 							Actual fuel MPG
 						</Typography>
-						<Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-							Last ~2 months, gallons-weighted from fill-up MPG (odometer-based
-							segments). {mpgStats.fillCount} fill-up
-							{mpgStats.fillCount !== 1 ? "s" : ""} with MPG; blended{" "}
-							<strong>{mpgStats.overallMpg || "—"}</strong> MPG,{" "}
-							{mpgStats.totalGallons || "—"} gal.
+						<Typography
+							variant="caption"
+							color="text.secondary"
+							display="block"
+							sx={{ mb: 1 }}
+						>
+							Weekly trend from fill-ups; blended MPG at the top matches this window.
 						</Typography>
 						<Box sx={{ flexGrow: 1, position: "relative" }}>
 							<Line data={mpgChartData} options={mpgChartOptions} />

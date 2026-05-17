@@ -137,19 +137,22 @@ function Loads() {
 		);
 	};
 
-	// Sort loads: active load first, then by dateDelivered descending
+	const parseLoadDateMs = (dateStr) => {
+		if (!dateStr || String(dateStr).trim() === "") return 0;
+		const s = String(dateStr).trim();
+		const d = s.includes("T") ? new Date(s) : new Date(`${s}T00:00:00Z`);
+		const t = d.getTime();
+		return Number.isNaN(t) ? 0 : t;
+	};
+
+	// Most recent first: delivered loads by delivery date; in-transit by dispatch date
 	const sortedLoadsForTable = [...loadsForTable].sort((a, b) => {
-		const aIsActive = !a.dateDelivered;
-		const bIsActive = !b.dateDelivered;
-
-		if (aIsActive && !bIsActive) return -1; // a (active) comes before b (completed)
-		if (!aIsActive && bIsActive) return 1; // b (active) comes before a (completed)
-
-		// If both are active or both are completed, sort by dateDelivered (descending for completed)
-		if (a.dateDelivered && b.dateDelivered) {
-			return new Date(b.dateDelivered) - new Date(a.dateDelivered);
-		}
-		return 0; // Should not happen if one is active, or for two active loads (no dateDelivered to sort by)
+		const keyA = a.dateDelivered ? a.dateDelivered : a.dateDispatched;
+		const keyB = b.dateDelivered ? b.dateDelivered : b.dateDispatched;
+		const msA = parseLoadDateMs(keyA);
+		const msB = parseLoadDateMs(keyB);
+		if (msB !== msA) return msB - msA;
+		return String(b.proNumber).localeCompare(String(a.proNumber));
 	});
 
 	const handleAddLoad = () => {
