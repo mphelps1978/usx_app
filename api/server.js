@@ -211,9 +211,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+const healthOk = (req, res) => res.json({ status: 'ok' });
+app.get('/api/health', healthOk);
+app.get('/health', healthOk);
 
 const uploadReceiptMemory = multer({
   storage: multer.memoryStorage(),
@@ -1535,14 +1535,16 @@ async function startServer() {
       }
     });
 
-    app.get('/api/health/ready', async (req, res) => {
+    const healthReady = async (req, res) => {
       try {
         await sequelize.authenticate();
         res.json({ status: 'ready' });
       } catch (err) {
         res.status(503).json({ status: 'not_ready', message: err.message });
       }
-    });
+    };
+    app.get('/api/health/ready', healthReady);
+    app.get('/health/ready', healthReady);
 
     if (process.env.SERVE_STATIC === 'true' || process.env.SERVE_STATIC === '1') {
       const distPath = path.resolve(__dirname, '..', 'interface', 'dist');
