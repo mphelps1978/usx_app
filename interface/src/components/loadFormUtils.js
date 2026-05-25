@@ -1,3 +1,12 @@
+/** Today's date as YYYY-MM-DD for date inputs */
+export function formatTodayForInput() {
+	const d = new Date();
+	const year = d.getFullYear();
+	const month = String(d.getMonth() + 1).padStart(2, "0");
+	const day = String(d.getDate()).padStart(2, "0");
+	return `${year}-${month}-${day}`;
+}
+
 /** Format date strings to YYYY-MM-DD for HTML date inputs */
 export function formatDateForInput(dateString) {
 	if (!dateString) return "";

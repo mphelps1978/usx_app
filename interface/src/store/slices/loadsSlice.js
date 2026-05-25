@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios'
 import { config } from '../../config';
 const apiurl = config.apiUrl;
@@ -10,6 +10,22 @@ export const fetchLoads = createAsyncThunk('/loads/fetchLoads', async (_, { getS
   })
   return response.data
 })
+
+export const fetchLastEndingOdometer = createAsyncThunk(
+  'loads/fetchLastEndingOdometer',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth
+      const response = await axios.get(`${apiurl}/loads/last-ending-odometer`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      return response.data?.endingOdometer ?? null
+    } catch (err) {
+      const message = err.response?.data?.message || err.message || 'Failed to fetch odometer'
+      return rejectWithValue(message)
+    }
+  },
+)
 
 export const addLoad = createAsyncThunk('/loads/addLoad', async (load, { getState, rejectWithValue }) => {
   try {
@@ -49,6 +65,7 @@ const initialState = {
   list: [],
   loading: false,
   error: null,
+  lastEndingOdometer: null,
 };
 
 const loadSlice = createSlice({
@@ -69,6 +86,9 @@ const loadSlice = createSlice({
       .addCase(fetchLoads.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message;
+      })
+      .addCase(fetchLastEndingOdometer.fulfilled, (state, action) => {
+        state.lastEndingOdometer = action.payload;
       })
       // addLoad
       .addCase(addLoad.pending, (state) => {
@@ -114,4 +134,3 @@ const loadSlice = createSlice({
 })
 
 export default loadSlice.reducer
-

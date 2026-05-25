@@ -15,6 +15,7 @@ import { useSelector } from "react-redux";
 import { version } from "../../package.json";
 
 import { config } from '../config';
+import { readAuthToken } from "../store/slices/authStorage";
 const API_URL = config.apiUrl;
 
 function BugReportModal({ open, onClose }) {
@@ -48,7 +49,7 @@ function BugReportModal({ open, onClose }) {
 		};
 
 		try {
-			const token = localStorage.getItem("authToken");
+			const token = readAuthToken();
 			const headers = {};
 			if (token) {
 				headers["Authorization"] = `Bearer ${token}`;

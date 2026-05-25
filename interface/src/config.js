@@ -17,6 +17,12 @@ const isSupabaseFunctionApiUrl = (raw) => {
   return value.includes(".supabase.co/functions/v1");
 };
 
+/** Production UI host → API base (when VITE_API_URL was not passed at Docker build). */
+const PRODUCTION_API_BY_HOST = {
+  'usxicbooks.cloud': 'https://api.usxicbooks.cloud/api',
+  'www.usxicbooks.cloud': 'https://api.usxicbooks.cloud/api',
+};
+
 /** True when the UI is opened via a typical LAN IP (tablet/phone on same Wi‑Fi as the dev PC). */
 const isPrivateLanIPv4 = (hostname) => {
   if (!hostname || typeof hostname !== "string") return false;
@@ -57,10 +63,18 @@ const getApiConfig = () => {
     isPrivateLanIPv4(hostname);
 
   if (!isLocalDev) {
-    console.warn(
-      '[config] VITE_API_URL was not set at build time. API calls may fail on split frontend/backend deploys.',
-    );
     const origin = window.location.origin.replace(/\/$/, '');
+    const mappedApi = PRODUCTION_API_BY_HOST[hostname];
+    if (mappedApi) {
+      return {
+        apiUrl: normalizeApiBase(mappedApi),
+        frontendUrl: origin,
+        environment: 'production',
+      };
+    }
+    console.warn(
+      '[config] VITE_API_URL was not set at build time and no API mapping exists for this host.',
+    );
     return {
       apiUrl: `${origin}/api`,
       frontendUrl: origin,

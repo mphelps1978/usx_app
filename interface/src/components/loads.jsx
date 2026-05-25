@@ -1,6 +1,11 @@
 import { React, useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { fetchLoads, updateLoad, deleteLoad } from "../store/slices/loadsSlice";
+import {
+	fetchLoads,
+	fetchLastEndingOdometer,
+	updateLoad,
+	deleteLoad,
+} from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
 import {
@@ -23,7 +28,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import LoadFormDialog from "./LoadFormDialog";
-import { formatDateForInput } from "./loadFormUtils";
+import { formatDateForInput, formatTodayForInput } from "./loadFormUtils";
 
 // Helper function to format date strings for display
 const formatDateForDisplay = (dateString, defaultText = "N/A") => {
@@ -63,6 +68,7 @@ function Loads() {
 		(state) => state.userSettings || { settings: {}, loading: false }
 	);
 	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [deliverMode, setDeliverMode] = useState(false);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
@@ -155,12 +161,26 @@ function Loads() {
 		return String(b.proNumber).localeCompare(String(a.proNumber));
 	});
 
-	const handleAddLoad = () => {
+	const handleAddLoad = async () => {
 		dispatch(resetForm());
+		setDeliverMode(false);
+		try {
+			const result = await dispatch(fetchLastEndingOdometer()).unwrap();
+			if (result != null) {
+				dispatch(
+					setFormData({
+						startingOdometer: String(result),
+					})
+				);
+			}
+		} catch {
+			/* no prior delivery — starting odometer stays blank */
+		}
 		setIsModalOpen(true);
 	};
 
 	const handleEditLoad = (load) => {
+		setDeliverMode(false);
 		const formattedLoad = {
 			...load,
 			dateDispatched: formatDateForInput(load.dateDispatched),
@@ -170,29 +190,25 @@ function Loads() {
 		setIsModalOpen(true);
 	};
 
+	const handleDeliverLoad = (load) => {
+		setDeliverMode(true);
+		const formattedLoad = {
+			...load,
+			dateDispatched: formatDateForInput(load.dateDispatched),
+			dateDelivered: formatTodayForInput(),
+		};
+		dispatch(setFormData(formattedLoad));
+		setIsModalOpen(true);
+	};
+
 	const handleCloseModal = () => {
 		setIsModalOpen(false);
+		setDeliverMode(false);
 		dispatch(resetForm());
 	};
 
 	const handleDelete = async (proNumber) => {
 		await dispatch(deleteLoad(proNumber));
-	};
-
-	const handleCompleteLoad = async (loadToComplete) => {
-		const currentDate = new Date();
-		const year = currentDate.getFullYear();
-		const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
-		const day = currentDate.getDate().toString().padStart(2, "0");
-		const formattedDate = `${year}-${month}-${day}`;
-
-		const updatedLoadData = {
-			...loadToComplete,
-			dateDelivered: formattedDate,
-		};
-		await dispatch(
-			updateLoad({ proNumber: loadToComplete.proNumber, load: updatedLoadData })
-		);
 	};
 
 	return (
@@ -369,7 +385,7 @@ function Loads() {
 													{!load.dateDelivered && (
 														<Tooltip title="Mark as Delivered">
 															<IconButton
-																onClick={() => handleCompleteLoad(load)}
+																onClick={() => handleDeliverLoad(load)}
 																color="success"
 																size="small"
 																sx={{ mr: 1 }}
@@ -407,7 +423,11 @@ function Loads() {
 					</TableContainer>
 				)}
 
-			<LoadFormDialog open={isModalOpen} onClose={handleCloseModal} />
+			<LoadFormDialog
+				open={isModalOpen}
+				onClose={handleCloseModal}
+				deliverMode={deliverMode}
+			/>
 		</Box>
 	);
 }

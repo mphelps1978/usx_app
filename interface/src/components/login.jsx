@@ -14,6 +14,8 @@ import {
 	Alert,
 	InputAdornment,
 	IconButton,
+	FormControlLabel,
+	Checkbox,
 } from "@mui/material";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
@@ -22,6 +24,7 @@ const Login = () => {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
+	const [rememberMe, setRememberMe] = useState(true);
 	const dispatch = useDispatch();
 	const { error } = useSelector((state) => state.auth || {});
 	const navigate = useNavigate();
@@ -31,7 +34,7 @@ const Login = () => {
 	const handleSubmit = async (e) => {
 		e.preventDefault();
 		const result = await dispatch(
-			login({ email: email.trim(), password })
+			login({ email: email.trim(), password, rememberMe })
 		);
 		if (login.fulfilled.match(result)) {
 			navigate("/dashboard");
@@ -119,6 +122,16 @@ const Login = () => {
 									</InputAdornment>
 								),
 							}}
+						/>
+						<FormControlLabel
+							control={
+								<Checkbox
+									checked={rememberMe}
+									onChange={(e) => setRememberMe(e.target.checked)}
+									color="primary"
+								/>
+							}
+							label="Remember me"
 						/>
 						<Button
 							type="submit"

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { version } from '../../package.json'; // Assuming package.json is two levels up
 
 import { config } from '../config';
+import { readAuthToken } from '../store/slices/authStorage';
 const API_URL = config.apiUrl;
 
 export const logErrorToServer = async (error, contextInfo = {}) => {
@@ -10,7 +11,7 @@ export const logErrorToServer = async (error, contextInfo = {}) => {
     // Attempt to get the auth token directly from localStorage
     // This is a fallback if Redux state isn't easily accessible here
     // or if the error occurs before Redux is fully initialized.
-    const token = localStorage.getItem('authToken');
+    const token = readAuthToken();
     const headers = {};
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;

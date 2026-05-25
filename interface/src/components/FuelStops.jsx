@@ -168,7 +168,6 @@ function FuelStops() {
 			proNumber: fuelStop.proNumber,
 			dateOfStop: formatDateForInput(fuelStop.dateOfStop),
 			vendorName: fuelStop.vendor, // Map from 'vendor' (model) to 'vendorName' (form)
-			location: fuelStop.location,
 			fuelCardUsed: fuelStop.fuelCardUsed || false, // Defaults to False if not present
 			discountEligible: fuelStop.discountEligible || false, // Ensure this matches corrected name
 			gallonsDieselPurchased: fuelStop.gallonsDieselPurchased, // Use corrected model field name
@@ -210,7 +209,6 @@ function FuelStops() {
 				? formatDateForInput(new Date(formData.dateOfStop))
 				: null,
 			vendorName: formData.vendorName,
-			location: formData.location,
 			gallonsDieselPurchased: parseFloat(formData.gallonsDieselPurchased) || 0,
 			pumpPriceDiesel: parseFloat(formData.pumpPriceDiesel) || 0,
 			gallonsDefPurchased: formData.gallonsDefPurchased
@@ -353,7 +351,6 @@ function FuelStops() {
 								<TableCell>Load PRO</TableCell>
 								<TableCell>Date</TableCell>
 								<TableCell>Vendor</TableCell>
-								<TableCell>Location</TableCell>
 								<TableCell align="right">Diesel Gal.</TableCell>
 								<TableCell align="right">Diesel Price/Gal</TableCell>
 								<TableCell align="right">Total Diesel Cost</TableCell>
@@ -378,7 +375,6 @@ function FuelStops() {
 									</TableCell>
 									<TableCell>{formatDateForDisplay(fs.dateOfStop)}</TableCell>
 									<TableCell>{fs.vendor}</TableCell>
-									<TableCell>{fs.location || "N/A"}</TableCell>
 									<TableCell align="right">
 										{/* Use corrected model field name: gallonsDieselPurchased. Show 0.00 if 0. */}
 										{fs.gallonsDieselPurchased !== undefined &&
@@ -561,18 +557,6 @@ function FuelStops() {
 								fullWidth
 								required
 								margin="dense"
-							/>
-						</Grid>
-						<Grid item xs={12} sm={6}>
-							<TextField
-								margin="dense"
-								label="Location (e.g., City, ST)"
-								type="text"
-								name="location"
-								value={formData.location || ""}
-								onChange={handleInputChange}
-								fullWidth
-								required
 							/>
 						</Grid>
 						<Grid item xs={12} sm={6} md={3}>

@@ -48,7 +48,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import LoadFormDialog from "./LoadFormDialog";
 import OfficeReceiptDialog from "./OfficeReceiptDialog";
-import { formatDateForInput } from "./loadFormUtils";
+import { formatDateForInput, formatTodayForInput } from "./loadFormUtils";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 
 ChartJS.register(
@@ -196,8 +196,8 @@ function Dashboard() {
 	);
 
 	const activeLoad = loads.find((load) => !load.dateDelivered);
-	const [completeLoadError, setCompleteLoadError] = useState(null);
 	const [activeLoadEditOpen, setActiveLoadEditOpen] = useState(false);
+	const [deliverMode, setDeliverMode] = useState(false);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
@@ -214,15 +214,29 @@ function Dashboard() {
 
 	const handleCloseActiveLoadEdit = () => {
 		setActiveLoadEditOpen(false);
+		setDeliverMode(false);
 		dispatch(resetForm());
 	};
 
 	const handleEditLoad = () => {
 		if (!activeLoad?.proNumber) return;
+		setDeliverMode(false);
 		const formattedLoad = {
 			...activeLoad,
 			dateDispatched: formatDateForInput(activeLoad.dateDispatched),
 			dateDelivered: formatDateForInput(activeLoad.dateDelivered),
+		};
+		dispatch(setFormData(formattedLoad));
+		setActiveLoadEditOpen(true);
+	};
+
+	const handleDeliverLoad = () => {
+		if (!activeLoad?.proNumber) return;
+		setDeliverMode(true);
+		const formattedLoad = {
+			...activeLoad,
+			dateDispatched: formatDateForInput(activeLoad.dateDispatched),
+			dateDelivered: formatTodayForInput(),
 		};
 		dispatch(setFormData(formattedLoad));
 		setActiveLoadEditOpen(true);
@@ -234,33 +248,6 @@ function Dashboard() {
 			dispatch(resetForm());
 		}
 	}, [activeLoadEditOpen, activeLoad, dispatch]);
-
-	const handleCompleteLoad = async () => {
-		setCompleteLoadError(null);
-		if (!activeLoad?.proNumber) return;
-		const currentDate = new Date();
-		const year = currentDate.getFullYear();
-		const month = (currentDate.getMonth() + 1).toString().padStart(2, "0");
-		const day = currentDate.getDate().toString().padStart(2, "0");
-		const formattedDate = `${year}-${month}-${day}`;
-
-		const updatedLoadData = {
-			...activeLoad,
-			dateDelivered: formattedDate,
-		};
-		try {
-			await dispatch(
-				updateLoad({ proNumber: activeLoad.proNumber, load: updatedLoadData })
-			).unwrap();
-		} catch (err) {
-			const msg =
-				typeof err === "string"
-					? err
-					: err?.message ||
-						"Could not complete load. Enter odometers on Loads, then set delivery date there.";
-			setCompleteLoadError(msg);
-		}
-	};
 
 	/** Delivered loads with full odometer splits; compare dispatched vs actual per segment. */
 	const milesComparisonSummary = useMemo(() => {
@@ -1102,12 +1089,6 @@ function Dashboard() {
 				</DialogActions>
 			</Dialog>
 
-			{completeLoadError && (
-				<Alert severity="warning" sx={{ mb: 2, maxWidth: 720, mx: "auto" }}>
-					{completeLoadError}
-				</Alert>
-			)}
-
 			{activeLoad && (
 				<Box
 					sx={{
@@ -1150,11 +1131,11 @@ function Dashboard() {
 						Status: In Transit
 					</Typography>
 					<IconButton
-						onClick={handleCompleteLoad}
+						onClick={handleDeliverLoad}
 						color="success"
 						size="small"
 						sx={{ ml: 1 }}
-						title="Mark as Delivered (requires odometers on Loads)"
+						title="Mark as delivered — enter ending odometer and details"
 					>
 						<CheckCircleOutlineIcon />
 					</IconButton>
@@ -1337,7 +1318,11 @@ function Dashboard() {
 				</Grid>
 			</Grid>
 
-			<LoadFormDialog open={activeLoadEditOpen} onClose={handleCloseActiveLoadEdit} />
+			<LoadFormDialog
+				open={activeLoadEditOpen}
+				onClose={handleCloseActiveLoadEdit}
+				deliverMode={deliverMode}
+			/>
 		</Box>
 	);
 }

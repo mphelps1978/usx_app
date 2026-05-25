@@ -94,6 +94,28 @@ function computeLoadOdometerDerived({ startingOdometer, loadedStartOdometer, end
   };
 }
 
+function jwtExpiresForRemember(rememberMe) {
+  if (rememberMe) {
+    return process.env.JWT_REMEMBER_EXPIRES || '30d';
+  }
+  return process.env.JWT_SESSION_EXPIRES || '8h';
+}
+
+/** Most recent delivered load's ending odometer for starting the next load. */
+async function getLastDeliveredEndingOdometer(Loads, userId) {
+  const last = await Loads.findOne({
+    where: {
+      userId,
+      dateDelivered: { [Op.ne]: null },
+      endingOdometer: { [Op.ne]: null },
+    },
+    order: [['dateDelivered', 'DESC'], ['updatedAt', 'DESC']],
+  });
+  if (!last || last.endingOdometer == null) return null;
+  const n = parseFloat(last.endingOdometer);
+  return Number.isNaN(n) ? null : n;
+}
+
 const app = express();
 
 if (process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1') {
@@ -128,20 +150,40 @@ const defaultAllowedOrigins = [
   'https://usx-app-ten.vercel.app',
   'https://www.usx-app-ten.vercel.app',
   'https://usxapp-production.up.railway.app',
+  'https://usxicbooks.cloud',
+  'https://www.usxicbooks.cloud',
 ];
-const envFrontendOrigin = (process.env.FRONTEND_URL || '').trim();
+
+function normalizeOrigin(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim().replace(/\/$/, '');
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `https://${trimmed}`;
+}
+
+const envFrontendOrigin = normalizeOrigin(process.env.FRONTEND_URL || '');
 const extraOrigins = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
-  .map((o) => o.trim())
+  .map((o) => normalizeOrigin(o))
   .filter(Boolean);
+
+const deploymentHttpsOrigins = [];
+if (deploymentDomainHost) {
+  const base = deploymentDomainHost.startsWith('www.')
+    ? deploymentDomainHost.slice(4)
+    : deploymentDomainHost;
+  deploymentHttpsOrigins.push(`https://${base}`, `https://www.${base}`);
+}
+
 const allowedOrigins = [...new Set([
   ...defaultAllowedOrigins,
-  ...(envFrontendOrigin ? [envFrontendOrigin.replace(/\/$/, '')] : []),
+  ...deploymentHttpsOrigins,
+  ...(envFrontendOrigin ? [envFrontendOrigin] : []),
   ...extraOrigins,
 ])];
-if (envFrontendOrigin) {
-  console.log(`[SERVER] CORS frontend origin: ${envFrontendOrigin.replace(/\/$/, '')}`);
-}
+
+console.log('[SERVER] CORS allowed origins:', allowedOrigins.join(', '));
 
 function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
@@ -202,6 +244,7 @@ app.use(cors({
     if (isAllowedCorsOrigin(origin)) {
       return callback(null, origin);
     }
+    console.warn('[SERVER] CORS blocked origin:', origin);
     return callback(null, false);
   },
   credentials: true,
@@ -214,6 +257,12 @@ app.use(express.json());
 const healthOk = (req, res) => res.json({ status: 'ok' });
 app.get('/api/health', healthOk);
 app.get('/health', healthOk);
+
+const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`[SERVER] Listening on http://${HOST}:${PORT} (database still initializing…)`);
+});
 
 const uploadReceiptMemory = multer({
   storage: multer.memoryStorage(),
@@ -262,7 +311,11 @@ async function startServer() {
           password: hashedPassword,
         });
         // Generate a token for the new user to log them in immediately
-        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
+        const token = jwt.sign(
+          { userId: user.id },
+          process.env.JWT_SECRET,
+          { expiresIn: jwtExpiresForRemember(!!req.body.rememberMe) },
+        );
         res.status(201).json({ message: 'User registered', userId: user.id, token: token });
       } catch (err) {
         console.error('[SERVER] Register error:', err);
@@ -277,7 +330,7 @@ async function startServer() {
     // Login (case-insensitive email — Postgres string compare is case-sensitive by default)
     app.post('/api/login', async (req, res) => {
       try {
-        const { email, password } = req.body;
+        const { email, password, rememberMe } = req.body;
         const emailInput = typeof email === 'string' ? email.trim() : '';
         if (!emailInput) {
           return res.status(400).json({ message: 'Email is required' });
@@ -292,11 +345,26 @@ async function startServer() {
         if (!user || !(await bcrypt.compare(password, user.password))) {
           return res.status(401).json({ message: 'Invalid credentials' });
         }
-        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
-        res.json({ token, userId: user.id });
+        const token = jwt.sign(
+          { userId: user.id },
+          process.env.JWT_SECRET,
+          { expiresIn: jwtExpiresForRemember(!!rememberMe) },
+        );
+        res.json({ token, userId: user.id, rememberMe: !!rememberMe });
       } catch (err) {
         console.error('[SERVER] Login error:', err);
         res.status(500).json({ message: 'Server error during login' });
+      }
+    });
+
+    // Last delivered ending odometer (prefill starting odometer on new load)
+    app.get('/api/loads/last-ending-odometer', authenticate, async (req, res) => {
+      try {
+        const endingOdometer = await getLastDeliveredEndingOdometer(Loads, req.userId);
+        res.json({ endingOdometer });
+      } catch (err) {
+        console.error('[SERVER] Error fetching last ending odometer:', err);
+        res.status(500).json({ message: 'Server error' });
       }
     });
 
@@ -402,8 +470,13 @@ async function startServer() {
         loadData.loadedMiles = toNullableFloat(loadData.loadedMiles);
         loadData.weight = toNullableFloat(loadData.weight);
 
+        let startingForOdo = loadData.startingOdometer;
+        if (toNullableFloat(startingForOdo) == null) {
+          const lastEnding = await getLastDeliveredEndingOdometer(Loads, req.userId);
+          if (lastEnding != null) startingForOdo = lastEnding;
+        }
         const odoCreate = computeLoadOdometerDerived({
-          startingOdometer: loadData.startingOdometer,
+          startingOdometer: startingForOdo,
           loadedStartOdometer: loadData.loadedStartOdometer,
           endingOdometer: loadData.endingOdometer,
         });
@@ -573,6 +646,25 @@ async function startServer() {
           String(newDeliveredRaw).trim() !== '' &&
           !isNaN(new Date(newDeliveredRaw).getTime());
 
+        const willBeDelivered =
+          updatedLoadData.dateDelivered !== undefined
+            ? updatedLoadData.dateDelivered !== null &&
+              String(updatedLoadData.dateDelivered).trim() !== '' &&
+              !isNaN(new Date(updatedLoadData.dateDelivered).getTime())
+            : !!loadToUpdate.dateDelivered;
+        const finalEndingOdometer = Object.prototype.hasOwnProperty.call(
+          updatedLoadData,
+          'endingOdometer',
+        )
+          ? odoPut.endingOdometer
+          : loadToUpdate.endingOdometer;
+
+        if (willBeDelivered && finalEndingOdometer == null) {
+          return res.status(400).json({
+            message: 'Ending odometer is required when marking a load as delivered.',
+          });
+        }
+
         if (becomesDelivered) {
           if (
             odoPut.startingOdometer != null &&
@@ -671,7 +763,6 @@ async function startServer() {
           proNumber,
           dateOfStop,
           vendorName, // from frontend
-          location,
           gallonsDieselPurchased, // Expecting camelCase from frontend
           pumpPriceDiesel,      // Expecting camelCase from frontend
           gallonsDefPurchased,  // Expecting camelCase from frontend (optional)
@@ -681,7 +772,7 @@ async function startServer() {
         } = req.body;
 
         // Validate required fields from the frontend payload
-        const requiredFrontendFields = ['proNumber', 'dateOfStop', 'vendorName', 'location', 'gallonsDieselPurchased', 'pumpPriceDiesel'];
+        const requiredFrontendFields = ['proNumber', 'dateOfStop', 'vendorName', 'gallonsDieselPurchased', 'pumpPriceDiesel'];
         for (const field of requiredFrontendFields) {
           const value = req.body[field];
           if (value === undefined || value === null || value === '') {
@@ -743,7 +834,6 @@ async function startServer() {
           userId: req.userId,
           dateOfStop: new Date(dateOfStop), // Convert to Date object
           vendor: vendorName, // Map vendorName to 'vendor' model field
-          location: location,
           gallonsDieselPurchased: gdp,
           dieselPricePerGallon: ppd,
           totalDieselCost: parseFloat(costDieselPurchased.toFixed(2)),
@@ -805,7 +895,6 @@ async function startServer() {
         const {
           dateOfStop,
           vendorName, // from frontend
-          location,
           gallonsDieselPurchased, // Expecting camelCase
           pumpPriceDiesel,      // Expecting camelCase
           gallonsDefPurchased,  // Expecting camelCase
@@ -819,7 +908,6 @@ async function startServer() {
         const updateData = {};
         if (dateOfStop !== undefined) updateData.dateOfStop = new Date(dateOfStop);
         if (vendorName !== undefined) updateData.vendor = vendorName; // Map to model field 'vendor'
-        if (location !== undefined) updateData.location = location;
 
         // Determine values to use for calculation (either new from req.body or existing from fuelStop)
         const gdpToUse = gallonsDieselPurchased !== undefined ? parseFloat(gallonsDieselPurchased) : fuelStop.gallonsDieselPurchased;
@@ -1564,12 +1652,7 @@ async function startServer() {
       }
     }
 
-    // Start the Express server
-    const PORT = process.env.PORT || 3001;
-    const HOST = process.env.HOST || '0.0.0.0';
-    app.listen(PORT, HOST, () => {
-      console.log(`[SERVER] Server running on http://${HOST}:${PORT} after DB initialization.`);
-    });
+    console.log('[SERVER] Database ready; API routes are active.');
 
   } catch (error) {
     // This catch is for errors during dbPromise resolution or critical setup errors

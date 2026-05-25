@@ -233,6 +233,9 @@ async function initializeDatabaseAndModels() {
     await sequelize.authenticate();
     console.log('[DB] Database connection successful!');
 
+    const { runMigrations } = require('./migrations/runMigrations');
+    await runMigrations(sequelize);
+
     // Step 2: Load (require and initialize) Sequelize models.
     // Models are defined in separate files and passed the sequelize instance.
     User = require('./models/User')(sequelize);

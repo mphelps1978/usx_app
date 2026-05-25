@@ -260,7 +260,6 @@ async function populate() {
       }
 
       const vendor   = VENDORS[det(seed * 31, 0, VENDORS.length)];
-      const location = j === 0 ? `${oc}, ${os}` : `${dc}, ${ds}`;
 
       // MPG based on miles since last fuel stop (cross-load tracking)
       let calculatedMpg = null;
@@ -280,7 +279,6 @@ async function populate() {
         userId:                    user.id,
         dateOfStop:                fmt(stopDate),
         vendor,
-        location,
         gallonsDieselPurchased:    gallons,
         dieselPricePerGallon:      pumpPrice,
         totalDieselCost,

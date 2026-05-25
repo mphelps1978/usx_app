@@ -34,7 +34,7 @@ import {
  * Add / edit load modal. Uses shared Redux `form` slice. Parent must pass `onClose`
  * that clears form state (e.g. dispatch resetForm) and sets `open` false.
  */
-function LoadFormDialog({ open, onClose }) {
+function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 	const dispatch = useDispatch();
 	const {
 		list: loadsForTable,
@@ -183,6 +183,15 @@ function LoadFormDialog({ open, onClose }) {
 		const startOd = parseOdometerField(formData.startingOdometer);
 		const pickOd = parseOdometerField(formData.loadedStartOdometer);
 		const endOd = parseOdometerField(formData.endingOdometer);
+		const hasDelivery =
+			formData.dateDelivered && String(formData.dateDelivered).trim() !== "";
+		if (hasDelivery && endOd == null) {
+			setModalError(
+				"Ending odometer is required when marking a load as delivered."
+			);
+			return;
+		}
+
 		if (
 			startOd != null &&
 			pickOd != null &&
@@ -275,7 +284,14 @@ function LoadFormDialog({ open, onClose }) {
 			maxWidth="md"
 			fullWidth
 		>
-			<DialogTitle>{isEditing ? "Edit Load" : "Add New Load"}</DialogTitle>
+			<DialogTitle>
+				{dialogTitle ||
+					(deliverMode
+						? "Complete delivery"
+						: isEditing
+							? "Edit Load"
+							: "Add New Load")}
+			</DialogTitle>
 			<DialogContent>
 				{modalError && (
 					<Alert severity="error" sx={{ mb: 2 }}>
@@ -597,8 +613,16 @@ function LoadFormDialog({ open, onClose }) {
 							onChange={handleInputChange}
 							fullWidth
 							margin="dense"
+							required={
+								deliverMode ||
+								!!(formData.dateDelivered && String(formData.dateDelivered).trim())
+							}
 							inputProps={{ step: "1" }}
-							helperText="Optional"
+							helperText={
+								deliverMode
+									? "Required to complete delivery"
+									: "Optional; end of trip"
+							}
 						/>
 					</Grid>
 					<Grid item xs={12} sm={6} md={3}>

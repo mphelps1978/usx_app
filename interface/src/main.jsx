@@ -7,6 +7,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import App from "./App.jsx";
 import { store } from "./store";
 import { setTokenFromStorage } from "./store/slices/authSlice";
+import { readAuthToken } from "./store/slices/authStorage";
 import "./index.css";
 
 // QuickBooks Green theme
@@ -36,8 +37,7 @@ const theme = createTheme({
 	},
 });
 
-// Check for token in localStorage on app load
-const token = localStorage.getItem("authToken");
+const token = readAuthToken();
 if (token) {
 	store.dispatch(setTokenFromStorage(token));
 }
