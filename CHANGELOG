@@ -2,7 +2,16 @@ Changelog
 
 Versions below 1.0.0 use MINOR bumps (0.x.0) for each snapshot you care about; list is newest first.
 
-0.6.0 — current
+0.7.0 — current
+  - Production: VPS deployment (Dockploy) with split API and frontend services; `config.js` maps usxicbooks.cloud to the production API
+  - API: Versioned SQL migrations on startup (including drop of unused `FuelStops.location`)
+  - Fuel stops: Removed location from database, API, and UI (table column and form field)
+  - Fuel stops: Odometer on create/update; MPG uses the prior stop with the highest odometer below the current reading
+  - Auth: Remember me on login — longer-lived JWT when checked, session storage when unchecked
+  - Loads / dashboard: Mark delivered opens the load form instead of completing in one step; ending odometer required to deliver
+  - Loads: Starting odometer prefilled from the ending odometer on the most recently delivered load
+
+0.6.0
   - Dashboard: Projected settlement — open a modal to list PROs in the pay period; uncheck Include to drop a load from the headline total (choices stored in localStorage per closing Wednesday)
   - Dashboard: Edit the in-transit load opens the full load form in a modal without leaving the dashboard
   - Refactor: Shared `LoadFormDialog` and `loadFormUtils` used by Loads and Dashboard
