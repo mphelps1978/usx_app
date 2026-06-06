@@ -53,6 +53,24 @@ export const updateLoad = createAsyncThunk('/loads/updateLoad', async ({ proNumb
   }
 })
 
+export const markLoadPaid = createAsyncThunk(
+  'loads/markLoadPaid',
+  async ({ proNumber, isPaid }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth
+      const response = await axios.patch(
+        `${apiurl}/loads/${proNumber}/paid`,
+        { isPaid },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      return response.data
+    } catch (err) {
+      const message = err.response?.data?.message || err.message || 'Failed to update paid status'
+      return rejectWithValue(message)
+    }
+  },
+)
+
 export const deleteLoad = createAsyncThunk('loads/deleteLoad', async (proNumber, { getState }) => {
   const { token } = getState().auth
   const response = await axios.delete(`${apiurl}/loads/${proNumber}`, {
@@ -115,6 +133,14 @@ const loadSlice = createSlice({
       })
       .addCase(updateLoad.rejected, (state, action) => {
         state.loading = false;
+        state.error = action.payload ?? action.error.message;
+      })
+      // markLoadPaid
+      .addCase(markLoadPaid.fulfilled, (state, action) => {
+        const index = state.list.findIndex((load) => load.proNumber === action.payload.proNumber)
+        if (index !== -1) state.list[index] = action.payload
+      })
+      .addCase(markLoadPaid.rejected, (state, action) => {
         state.error = action.payload ?? action.error.message;
       })
       // deleteLoad

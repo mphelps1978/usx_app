@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
-import { fetchLoads, updateLoad } from "../store/slices/loadsSlice";
+import { fetchLoads, updateLoad, markLoadPaid } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
 import { Bar, Line } from "react-chartjs-2";
@@ -81,20 +81,36 @@ function getSettlementWeekKey(date) {
 	return `${year}-${month}-${day}`;
 }
 
-const SETTLEMENT_EXCLUDED_STORAGE_PREFIX =
-	"usx_dashboard_settlement_excluded_pros";
+const SETTLEMENT_INCLUDED_STORAGE_PREFIX =
+	"usx_dashboard_settlement_included_pros";
 
-function readExcludedProsForWeek(closingWedStr) {
-	if (typeof localStorage === "undefined") return [];
+/** Returns null if this week has never been initialized in localStorage. */
+function readIncludedProsForWeek(closingWedStr) {
+	if (typeof localStorage === "undefined") return null;
 	try {
 		const raw = localStorage.getItem(
-			`${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`
+			`${SETTLEMENT_INCLUDED_STORAGE_PREFIX}:${closingWedStr}`
 		);
+		if (raw === null) return null;
 		const parsed = raw ? JSON.parse(raw) : [];
 		return Array.isArray(parsed) ? parsed.map(String) : [];
 	} catch {
-		return [];
+		return null;
 	}
+}
+
+function isDeliveredInSettlementPeriod(load, openingDate, closingDate) {
+	if (!load.dateDelivered) return false;
+	const delivered = new Date(`${load.dateDelivered}T00:00:00Z`);
+	return delivered >= openingDate && delivered <= closingDate;
+}
+
+function defaultIncludedProsForWeek(unpaidLoads, openingDate, closingDate) {
+	return unpaidLoads
+		.filter((load) =>
+			isDeliveredInSettlementPeriod(load, openingDate, closingDate)
+		)
+		.map((load) => String(load.proNumber));
 }
 
 /** Makes headline averages / totals easy to scan vs surrounding caption text */
@@ -705,8 +721,8 @@ function Dashboard() {
 		},
 	};
 
-	// Current settlement period: Thu → Wed (closes Wednesday; date-only delivery uses UTC midnight)
-	const { settlementLoads, periodLabel, closingWedStr } = useMemo(() => {
+	// Current settlement period bounds (Thu → Wed closing Wednesday)
+	const { periodLabel, closingWedStr, openingDate, closingDate } = useMemo(() => {
 		const today = new Date();
 		const closingWedStr = getSettlementWeekKey(today);
 		const closingDate = new Date(closingWedStr + "T00:00:00Z");
@@ -721,37 +737,30 @@ function Dashboard() {
 			});
 		const periodLabel = `${fmt(openingDate)} – ${fmt(closingDate)}`;
 
-		const inPeriod = loads.filter((load) => {
-			if (!load.dateDelivered) return false;
-			const delivered = new Date(load.dateDelivered + "T00:00:00Z");
-			return delivered >= openingDate && delivered <= closingDate;
-		});
+		return { periodLabel, closingWedStr, openingDate, closingDate };
+	}, []);
 
-		const settlementLoads = [...inPeriod].sort((a, b) => {
-			const da = new Date(`${a.dateDelivered}T00:00:00Z`).getTime();
-			const db = new Date(`${b.dateDelivered}T00:00:00Z`).getTime();
-			const na = Number.isNaN(da) ? 0 : da;
-			const nb = Number.isNaN(db) ? 0 : db;
-			if (nb !== na) return nb - na;
-			return String(b.proNumber).localeCompare(String(a.proNumber));
-		});
-
-		return { settlementLoads, periodLabel, closingWedStr };
+	const unpaidLoads = useMemo(() => {
+		return [...loads]
+			.filter((load) => load.dateDelivered && !load.isPaid)
+			.sort((a, b) => {
+				const da = new Date(`${a.dateDelivered}T00:00:00Z`).getTime();
+				const db = new Date(`${b.dateDelivered}T00:00:00Z`).getTime();
+				const na = Number.isNaN(da) ? 0 : da;
+				const nb = Number.isNaN(db) ? 0 : db;
+				if (nb !== na) return nb - na;
+				return String(b.proNumber).localeCompare(String(a.proNumber));
+			});
 	}, [loads]);
 
-	const [excludedSettlementPros, setExcludedSettlementPros] = useState([]);
+	const [includedSettlementPros, setIncludedSettlementPros] = useState([]);
 
-	useLayoutEffect(() => {
-		setExcludedSettlementPros(readExcludedProsForWeek(closingWedStr));
-	}, [closingWedStr]);
-
-	const persistExcludedSettlementPros = useCallback(
+	const persistIncludedSettlementPros = useCallback(
 		(nextList) => {
 			if (typeof localStorage === "undefined") return;
-			const key = `${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`;
+			const key = `${SETTLEMENT_INCLUDED_STORAGE_PREFIX}:${closingWedStr}`;
 			try {
-				if (nextList.length === 0) localStorage.removeItem(key);
-				else localStorage.setItem(key, JSON.stringify(nextList));
+				localStorage.setItem(key, JSON.stringify(nextList));
 			} catch {
 				// ignore quota / private mode
 			}
@@ -759,40 +768,87 @@ function Dashboard() {
 		[closingWedStr]
 	);
 
+	useLayoutEffect(() => {
+		const stored = readIncludedProsForWeek(closingWedStr);
+		const unpaidSet = new Set(unpaidLoads.map((l) => String(l.proNumber)));
+
+		if (stored !== null) {
+			const filtered = stored.filter((p) => unpaidSet.has(p));
+			setIncludedSettlementPros(filtered);
+			if (filtered.length !== stored.length) {
+				persistIncludedSettlementPros(filtered);
+			}
+			return;
+		}
+
+		if (unpaidLoads.length === 0) {
+			setIncludedSettlementPros([]);
+			return;
+		}
+
+		const defaults = defaultIncludedProsForWeek(
+			unpaidLoads,
+			openingDate,
+			closingDate
+		);
+		setIncludedSettlementPros(defaults);
+		persistIncludedSettlementPros(defaults);
+	}, [
+		closingWedStr,
+		unpaidLoads,
+		openingDate,
+		closingDate,
+		persistIncludedSettlementPros,
+	]);
+
 	const toggleSettlementProIncluded = useCallback(
 		(proNumber) => {
 			const key = String(proNumber);
-			setExcludedSettlementPros((prev) => {
-				const wasExcluded = prev.includes(key);
-				const next = wasExcluded
+			setIncludedSettlementPros((prev) => {
+				const next = prev.includes(key)
 					? prev.filter((p) => p !== key)
 					: [...prev, key];
-				persistExcludedSettlementPros(next);
+				persistIncludedSettlementPros(next);
 				return next;
 			});
 		},
-		[persistExcludedSettlementPros]
+		[persistIncludedSettlementPros]
+	);
+
+	const handleMarkLoadPaid = useCallback(
+		async (proNumber) => {
+			const key = String(proNumber);
+			const result = await dispatch(markLoadPaid({ proNumber: key, isPaid: true }));
+			if (markLoadPaid.fulfilled.match(result)) {
+				setIncludedSettlementPros((prev) => {
+					const next = prev.filter((p) => p !== key);
+					persistIncludedSettlementPros(next);
+					return next;
+				});
+			}
+		},
+		[dispatch, persistIncludedSettlementPros]
 	);
 
 	const settlementTotal = useMemo(() => {
-		const excluded = new Set(excludedSettlementPros);
-		return settlementLoads.reduce((sum, load) => {
-			if (excluded.has(String(load.proNumber))) return sum;
+		const included = new Set(includedSettlementPros);
+		return unpaidLoads.reduce((sum, load) => {
+			if (!included.has(String(load.proNumber))) return sum;
 			return sum + (parseFloat(load.projectedNet) || 0);
 		}, 0);
-	}, [settlementLoads, excludedSettlementPros]);
+	}, [unpaidLoads, includedSettlementPros]);
 
 	const settlementIncludedCount = useMemo(() => {
-		const excluded = new Set(excludedSettlementPros);
-		return settlementLoads.filter((l) => !excluded.has(String(l.proNumber))).length;
-	}, [settlementLoads, excludedSettlementPros]);
+		const included = new Set(includedSettlementPros);
+		return unpaidLoads.filter((l) => included.has(String(l.proNumber))).length;
+	}, [unpaidLoads, includedSettlementPros]);
 
 	const [settlementProsModalOpen, setSettlementProsModalOpen] = useState(false);
 	const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
 
 	useEffect(() => {
-		if (settlementLoads.length === 0) setSettlementProsModalOpen(false);
-	}, [settlementLoads.length]);
+		if (unpaidLoads.length === 0) setSettlementProsModalOpen(false);
+	}, [unpaidLoads.length]);
 
 	return (
 		<Box sx={{ flexGrow: 1 }}>
@@ -946,28 +1002,28 @@ function Dashboard() {
 									textAlign: "center",
 								}}
 							>
-								{settlementLoads.length > 0 ? (
+								{unpaidLoads.length > 0 ? (
 									<>
 										<Typography variant="caption" color="text.secondary">
-											{settlementIncludedCount === settlementLoads.length
-												? `${settlementLoads.length} load${
-														settlementLoads.length !== 1 ? "s" : ""
-													} in this period`
-												: `${settlementIncludedCount} of ${settlementLoads.length} load${
-														settlementLoads.length !== 1 ? "s" : ""
-													} counted in total`}
+											{settlementIncludedCount === unpaidLoads.length
+												? `${unpaidLoads.length} unpaid load${
+														unpaidLoads.length !== 1 ? "s" : ""
+													} in estimate`
+												: `${settlementIncludedCount} of ${unpaidLoads.length} unpaid load${
+														unpaidLoads.length !== 1 ? "s" : ""
+													} in estimate`}
 										</Typography>
 										<Button
 											size="small"
 											variant="outlined"
 											onClick={() => setSettlementProsModalOpen(true)}
 										>
-											View / edit PROs in this period
+											View / edit unpaid PROs
 										</Button>
 									</>
 								) : (
 									<Typography variant="caption" color="text.secondary">
-										No delivered loads in this settlement window yet.
+										No unpaid delivered loads.
 									</Typography>
 								)}
 							</Box>
@@ -1009,19 +1065,23 @@ function Dashboard() {
 							id="settlement-pros-dialog-title"
 							sx={{ fontSize: "1.125rem", fontWeight: 600 }}
 						>
-							Loads in this settlement period
+							Unpaid loads — settlement estimate
 						</Typography>
 						<Typography variant="caption" color="text.secondary">
-							{periodLabel}
+							Period {periodLabel}
 						</Typography>
 					</Stack>
 				</DialogTitle>
 				<DialogContent dividers>
 					<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-						Delivery dates are whole days; your carrier may move late Wednesday (or
-						similar) loads to the next check. Uncheck Include to drop a PRO from the
-						dashboard total.
+						Delivery dates are only a guide. Check the loads you expect on this
+						settlement, then mark paid once they appear on your check.
 					</Typography>
+					{unpaidLoads.length === 0 ? (
+						<Typography variant="body2" color="text.secondary">
+							All delivered loads are marked paid.
+						</Typography>
+					) : (
 					<Stack
 						component="ul"
 						sx={{
@@ -1034,10 +1094,15 @@ function Dashboard() {
 							overflow: "hidden",
 						}}
 					>
-						{settlementLoads.map((load) => {
+						{unpaidLoads.map((load) => {
 							const pro = String(load.proNumber);
 							const net = parseFloat(load.projectedNet) || 0;
-							const included = !excludedSettlementPros.includes(pro);
+							const included = includedSettlementPros.includes(pro);
+							const inPeriod = isDeliveredInSettlementPeriod(
+								load,
+								openingDate,
+								closingDate
+							);
 							return (
 								<Stack
 									component="li"
@@ -1055,9 +1120,19 @@ function Dashboard() {
 										backgroundColor: included ? "transparent" : "action.hover",
 									}}
 								>
-									<Box sx={{ minWidth: 0 }}>
+									<Box sx={{ minWidth: 0, flex: 1 }}>
 										<Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
 											PRO {pro}
+											{!inPeriod && (
+												<Typography
+													component="span"
+													variant="caption"
+													color="warning.main"
+													sx={{ ml: 1 }}
+												>
+													prior period
+												</Typography>
+											)}
 										</Typography>
 										<Typography
 											variant="caption"
@@ -1067,22 +1142,35 @@ function Dashboard() {
 											Delivered {load.dateDelivered} · ${net.toFixed(2)} projected net
 										</Typography>
 									</Box>
-									<FormControlLabel
-										control={
-											<Checkbox
-												size="small"
-												checked={included}
-												onChange={() => toggleSettlementProIncluded(pro)}
-												inputProps={{ "aria-label": `Include PRO ${pro} in settlement total` }}
-											/>
-										}
-										label="Include"
-										sx={{ flexShrink: 0, mr: 0 }}
-									/>
+									<Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexShrink: 0 }}>
+										<FormControlLabel
+											control={
+												<Checkbox
+													size="small"
+													checked={included}
+													onChange={() => toggleSettlementProIncluded(pro)}
+													inputProps={{
+														"aria-label": `Include PRO ${pro} in settlement estimate`,
+													}}
+												/>
+											}
+											label="Include"
+											sx={{ mr: 0 }}
+										/>
+										<Button
+											size="small"
+											variant="outlined"
+											color="success"
+											onClick={() => handleMarkLoadPaid(pro)}
+										>
+											Mark paid
+										</Button>
+									</Stack>
 								</Stack>
 							);
 						})}
 					</Stack>
+					)}
 				</DialogContent>
 				<DialogActions>
 					<Button onClick={() => setSettlementProsModalOpen(false)}>Close</Button>

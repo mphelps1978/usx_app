@@ -7,7 +7,7 @@ import {
 	updateFuelStop,
 	deleteFuelStop,
 } from "../store/slices/fuelStopsSlice";
-import { fetchLoads } from "../store/slices/loadsSlice"; // To populate PRO number dropdown
+import { fetchLoads } from "../store/slices/loadsSlice";
 import {
 	Box,
 	Button,
@@ -25,16 +25,13 @@ import {
 	DialogContent,
 	DialogTitle,
 	TextField,
-	Select,
-	MenuItem,
-	FormControl,
-	InputLabel,
+	Autocomplete,
 	Grid,
 	Checkbox,
 	FormControlLabel,
 	CircularProgress,
 	Alert,
-	Tooltip, // Added for icon button titles
+	Tooltip,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -81,6 +78,37 @@ const formatCurrency = (value) => {
 	return `$${(Math.round(safeValue * 100) / 100).toFixed(2)}`;
 };
 
+const formatLoadProLabel = (load) => {
+	if (!load) return "";
+	const lane = [load.originCity, load.destinationCity].filter(Boolean).join(" to ");
+	return lane ? `${load.proNumber} — ${lane}` : String(load.proNumber);
+};
+
+const parseLoadDateMs = (dateStr) => {
+	if (!dateStr || String(dateStr).trim() === "") return 0;
+	const s = String(dateStr).trim();
+	const d = s.includes("T") ? new Date(s) : new Date(`${s}T00:00:00Z`);
+	const t = d.getTime();
+	return Number.isNaN(t) ? 0 : t;
+};
+
+const sortLoadsForProPicker = (loadsList) =>
+	[...loadsList].sort((a, b) => {
+		const aInTransit = !a.dateDelivered;
+		const bInTransit = !b.dateDelivered;
+		if (aInTransit !== bInTransit) return aInTransit ? -1 : 1;
+		if (aInTransit) {
+			return String(b.proNumber).localeCompare(String(a.proNumber));
+		}
+		const dateDiff =
+			parseLoadDateMs(b.dateDelivered) - parseLoadDateMs(a.dateDelivered);
+		if (dateDiff !== 0) return dateDiff;
+		return String(b.proNumber).localeCompare(String(a.proNumber));
+	});
+
+const filterProPickerLoads = (loadsList, showPaidLoads) =>
+	showPaidLoads ? loadsList : loadsList.filter((load) => !load.isPaid);
+
 function FuelStops() {
 	const dispatch = useDispatch();
 	const location = useLocation(); // Get location object
@@ -105,6 +133,17 @@ function FuelStops() {
 	const [settleFormData, setSettleFormData] = useState({});
 	const [fuelStopToSettle, setFuelStopToSettle] = useState(null);
 	const [receiptFuelStop, setReceiptFuelStop] = useState(null);
+	const [showPaidLoads, setShowPaidLoads] = useState(false);
+
+	const selectedLoad = useMemo(
+		() => loads.find((load) => load.proNumber === formData.proNumber) || null,
+		[loads, formData.proNumber]
+	);
+
+	const proPickerLoads = useMemo(
+		() => sortLoadsForProPicker(filterProPickerLoads(loads, showPaidLoads)),
+		[loads, showPaidLoads]
+	);
 
 	const sortedFuelStops = useMemo(() => {
 		const parseStopMs = (dateStr) => {
@@ -131,6 +170,7 @@ function FuelStops() {
 		if (location.state?.openModalForPro) {
 			const proToPrefill = location.state.openModalForPro;
 			setIsEditing(false);
+			setShowPaidLoads(false);
 			setFormData({
 				...initialFormData, // Start with initial defaults
 				proNumber: proToPrefill,
@@ -155,7 +195,13 @@ function FuelStops() {
 
 	const handleAddFuelStop = () => {
 		setIsEditing(false);
-		setFormData(initialFormData); // Reset form with defaults
+		setShowPaidLoads(false);
+		const inTransitLoad = loads.find((load) => !load.dateDelivered);
+		setFormData({
+			...initialFormData,
+			proNumber: inTransitLoad?.proNumber || "",
+			dateOfStop: formatDateForInput(new Date()),
+		});
 		setIsModalOpen(true);
 	};
 
@@ -187,8 +233,9 @@ function FuelStops() {
 
 	const handleCloseModal = () => {
 		setIsModalOpen(false);
-		setFormData(initialFormData); // Reset form data
+		setFormData(initialFormData);
 		setIsEditing(false);
+		setShowPaidLoads(false);
 	};
 
 	const handleSubmitModal = async (e) => {
@@ -513,27 +560,73 @@ function FuelStops() {
 				<DialogContent>
 					<Grid container spacing={2} sx={{ mt: 1 }}>
 						<Grid item xs={12} sm={6}>
-							<FormControl fullWidth margin="dense" required>
-								<InputLabel id="proNumber-label">Load PRO Number</InputLabel>
-								<Select
-									labelId="proNumber-label"
+							{isEditing ? (
+								<TextField
 									label="Load PRO Number"
-									name="proNumber"
-									value={formData.proNumber || ""}
-									onChange={handleInputChange}
-									disabled={isEditing}
-								>
-									<MenuItem value="">
-										<em>Select Load</em>
-									</MenuItem>
-									{loads.map((load) => (
-										<MenuItem key={load.proNumber} value={load.proNumber}>
-											{load.proNumber} - {load.originCity} to{" "}
-											{load.destinationCity}
-										</MenuItem>
-									))}
-								</Select>
-							</FormControl>
+									value={
+										selectedLoad
+											? formatLoadProLabel(selectedLoad)
+											: formData.proNumber || ""
+									}
+									fullWidth
+									margin="dense"
+									disabled
+									required
+								/>
+							) : (
+								<>
+									<Autocomplete
+										options={proPickerLoads}
+										getOptionLabel={formatLoadProLabel}
+										value={selectedLoad}
+										onChange={(_, load) =>
+											setFormData((prev) => ({
+												...prev,
+												proNumber: load?.proNumber ?? "",
+											}))
+										}
+										isOptionEqualToValue={(a, b) =>
+											a?.proNumber === b?.proNumber
+										}
+										filterOptions={(options, { inputValue }) => {
+											const q = inputValue.trim().toLowerCase();
+											if (!q) return options;
+											return options.filter((load) => {
+												const label = formatLoadProLabel(load).toLowerCase();
+												return (
+													label.includes(q) ||
+													String(load.proNumber).toLowerCase().includes(q)
+												);
+											});
+										}}
+										renderInput={(params) => (
+											<TextField
+												{...params}
+												label="Load PRO Number"
+												margin="dense"
+												required
+												placeholder="Search PRO or lane"
+												helperText={
+													showPaidLoads
+														? "Showing all loads"
+														: "Showing unpaid loads only"
+												}
+											/>
+										)}
+									/>
+									<FormControlLabel
+										control={
+											<Checkbox
+												size="small"
+												checked={showPaidLoads}
+												onChange={(e) => setShowPaidLoads(e.target.checked)}
+											/>
+										}
+										label="Show paid loads"
+										sx={{ mt: 0.5 }}
+									/>
+								</>
+							)}
 						</Grid>
 						<Grid item xs={12} sm={6}>
 							<TextField

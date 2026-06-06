@@ -2,7 +2,16 @@ Changelog
 
 Versions below 1.0.0 use MINOR bumps (0.x.0) for each snapshot you care about; list is newest first.
 
-0.7.0 — current
+0.8.0 — current
+  - Fuel stops: PRO picker is a searchable autocomplete — unpaid loads by default, in-transit first; optional “Show paid loads” for backfill
+  - Loads: `isPaid` and `paidAt` on each load (database migration); reopening a load clears paid status
+  - Loads table: Paid checkbox for delivered loads
+  - Dashboard: Settlement projection uses unpaid delivered loads you select — not delivery-date guessing alone
+  - Dashboard: View / edit unpaid PROs modal — include in estimate, mark paid when the load appears on your settlement
+  - API: `PATCH /api/loads/:proNumber/paid` for paid toggles
+  - One-time migration: delivered loads before today marked paid (`paidAt` = delivery date); outstanding loads can be unmarked in pgAdmin (see `tools/backfill-loads-paid-before-today.sql`)
+
+0.7.0
   - Production: VPS deployment (Dockploy) with split API and frontend services; `config.js` maps usxicbooks.cloud to the production API
   - API: Versioned SQL migrations on startup (including drop of unused `FuelStops.location`)
   - Fuel stops: Removed location from database, API, and UI (table column and form field)

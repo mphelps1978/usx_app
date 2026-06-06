@@ -3,8 +3,8 @@ import { useDispatch, useSelector } from "react-redux";
 import {
 	fetchLoads,
 	fetchLastEndingOdometer,
-	updateLoad,
 	deleteLoad,
+	markLoadPaid,
 } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
@@ -23,6 +23,7 @@ import {
 	CircularProgress,
 	Alert,
 	Tooltip,
+	Checkbox,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -75,7 +76,6 @@ function Loads() {
 		dispatch(fetchFuelStops());
 	}, [dispatch]);
 
-	// Helper function to calculate total fuel cost for a load
 	const calculateTotalFuelCost = (proNumber, fuelStopsList) => {
 		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
 		return fuelStopsList
@@ -83,7 +83,6 @@ function Loads() {
 			.reduce((sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0), 0);
 	};
 
-	// Helper function to calculate fuel discount for a load
 	const calculateFuelDiscount = (proNumber, fuelStopsList) => {
 		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
 		return fuelStopsList
@@ -93,7 +92,6 @@ function Loads() {
 				const pumpPrice = parseFloat(stop.dieselPricePerGallon) || 0;
 				const settledPrice = parseFloat(stop.settledDieselPricePerGallon) || 0;
 
-				// If settled price exists, calculate discount
 				if (settledPrice > 0 && settledPrice < pumpPrice) {
 					const discountPerGallon = pumpPrice - settledPrice;
 					return sum + gallons * discountPerGallon;
@@ -102,7 +100,6 @@ function Loads() {
 			}, 0);
 	};
 
-	// Helper function to calculate net to truck for a load
 	const calculateNetToTruck = (load, fuelStopsList) => {
 		const actualFuelCost = calculateTotalFuelCost(
 			load.proNumber,
@@ -133,7 +130,6 @@ function Loads() {
 			bondDepositDeduction +
 			mrpFeeDeduction;
 
-		// Net to Truck = Calculated Gross - Total Deductions - Actual Fuel Cost - Scale Cost + Fuel Discount
 		return (
 			calculatedGross -
 			totalDeductions -
@@ -211,6 +207,12 @@ function Loads() {
 		await dispatch(deleteLoad(proNumber));
 	};
 
+	const handleTogglePaid = async (load) => {
+		await dispatch(
+			markLoadPaid({ proNumber: load.proNumber, isPaid: !load.isPaid })
+		);
+	};
+
 	return (
 		<Box sx={{ flexGrow: 1 }}>
 			<Box
@@ -270,6 +272,7 @@ function Loads() {
 									<TableCell align="right">Rate</TableCell>
 									<TableCell align="right">Gross</TableCell>
 									<TableCell align="right">Net</TableCell>
+									<TableCell align="center">Paid</TableCell>
 									<TableCell align="center">Actions</TableCell>
 								</TableRow>
 							</TableHead>
@@ -307,13 +310,6 @@ function Loads() {
 											bondDepositDeduction +
 											mrpFeeDeduction;
 
-										// Calculate fuel discount for this specific load
-										const fuelDiscountForLoad = calculateFuelDiscount(
-											load.proNumber,
-											allFuelStops
-										);
-
-										// Calculate net to truck for this specific load
 										const netToTruckForLoad = calculateNetToTruck(
 											load,
 											allFuelStops
@@ -380,6 +376,32 @@ function Loads() {
 													{`$${(
 														Math.round(netToTruckForLoad * 100) / 100
 													).toFixed(2)}`}
+												</TableCell>
+												<TableCell align="center">
+													{load.dateDelivered ? (
+														<Tooltip
+															title={
+																load.isPaid && load.paidAt
+																	? `Paid ${formatDateForDisplay(load.paidAt)}`
+																	: load.isPaid
+																		? "Paid"
+																		: "Mark as paid when this load appears on your settlement"
+															}
+														>
+															<Checkbox
+																size="small"
+																checked={!!load.isPaid}
+																onChange={() => handleTogglePaid(load)}
+																inputProps={{
+																	"aria-label": `PRO ${load.proNumber} paid`,
+																}}
+															/>
+														</Tooltip>
+													) : (
+														<Typography variant="caption" color="text.disabled">
+															—
+														</Typography>
+													)}
 												</TableCell>
 												<TableCell align="center">
 													{!load.dateDelivered && (

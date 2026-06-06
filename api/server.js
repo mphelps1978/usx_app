@@ -24,6 +24,38 @@ const {
 } = require('./constants/fixedExpenses');
 const { ALLOWED_OFFICE_EXPENSE_CATEGORY_VALUES } = require('./constants/officeExpenseCategories');
 
+function utcDateOnlyString(d = new Date()) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Apply isPaid/paidAt to updatedLoadData. Returns error message or null. */
+function applyLoadPaidFields(updatedLoadData, loadToUpdate, reqBody) {
+  if (!Object.prototype.hasOwnProperty.call(reqBody, 'isPaid')) return null;
+  const isPaid = !!reqBody.isPaid;
+  if (isPaid) {
+    const effectiveDelivered =
+      updatedLoadData.dateDelivered !== undefined
+        ? updatedLoadData.dateDelivered
+        : loadToUpdate.dateDelivered;
+    if (!effectiveDelivered) {
+      return 'Cannot mark as paid until the load is delivered.';
+    }
+    updatedLoadData.isPaid = true;
+    if (reqBody.paidAt !== undefined && reqBody.paidAt) {
+      updatedLoadData.paidAt = reqBody.paidAt;
+    } else {
+      updatedLoadData.paidAt = utcDateOnlyString();
+    }
+  } else {
+    updatedLoadData.isPaid = false;
+    updatedLoadData.paidAt = null;
+  }
+  return null;
+}
+
 /**
  * MPG for a fill-up: compare to the user's prior stop by odometer (largest reading
  * strictly less than the current reading). Excludes excludeFuelStopId when recalculating an update.
@@ -248,7 +280,7 @@ app.use(cors({
     return callback(null, false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Custom-Header'],
   exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
@@ -548,10 +580,14 @@ async function startServer() {
           bondDeposit,
           mrpFee,
           calculatedDeductions,
+          isPaid,
+          paidAt,
           ...restOfBody
         } = req.body;
 
         const updatedLoadData = { ...restOfBody };
+        delete updatedLoadData.isPaid;
+        delete updatedLoadData.paidAt;
 
         // Only update fields if they are explicitly provided in the request body
         if (driverPayType !== undefined) updatedLoadData.driverPayType = driverPayType;
@@ -577,6 +613,8 @@ async function startServer() {
 
         // If trying to set the load as active (dateDelivered is null)
         if (updatedLoadData.dateDelivered === null) {
+          updatedLoadData.isPaid = false;
+          updatedLoadData.paidAt = null;
           const otherActiveLoad = await Loads.findOne({
             where: {
               userId: req.userId,
@@ -690,8 +728,13 @@ async function startServer() {
         if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'loadedMiles')) {
           updatedLoadData.loadedMiles = toNullableFloatPut(updatedLoadData.loadedMiles);
         }
-        if (Object.prototype.hasOwnProperty.call(updatedLoadData, 'weight')) {
+        if (Object.prototype.hasOwnProperty.call(req.body, 'weight')) {
           updatedLoadData.weight = toNullableFloatPut(updatedLoadData.weight);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(req.body, 'isPaid')) {
+          const paidErr = applyLoadPaidFields(updatedLoadData, loadToUpdate, req.body);
+          if (paidErr) return res.status(400).json({ message: paidErr });
         }
 
         delete updatedLoadData.id;
@@ -717,6 +760,31 @@ async function startServer() {
           return res.status(409).json({ message: 'Another load already uses this Pro Number.' });
         }
         res.status(500).json({ message: 'Server error during load update' });
+      }
+    });
+
+    // Toggle load paid status (delivered loads only)
+    app.patch('/api/loads/:proNumber/paid', authenticate, async (req, res) => {
+      try {
+        const { proNumber } = req.params;
+        const loadToUpdate = await Loads.findOne({
+          where: { proNumber, userId: req.userId },
+        });
+        if (!loadToUpdate) return res.status(404).json({ message: 'Load not found' });
+
+        if (!Object.prototype.hasOwnProperty.call(req.body, 'isPaid')) {
+          return res.status(400).json({ message: 'isPaid is required.' });
+        }
+
+        const updatedLoadData = {};
+        const paidErr = applyLoadPaidFields(updatedLoadData, loadToUpdate, req.body);
+        if (paidErr) return res.status(400).json({ message: paidErr });
+
+        await loadToUpdate.update(updatedLoadData);
+        res.json(loadToUpdate);
+      } catch (err) {
+        console.error('[SERVER] Error updating load paid status:', err);
+        res.status(500).json({ message: 'Server error during load paid update' });
       }
     });
 

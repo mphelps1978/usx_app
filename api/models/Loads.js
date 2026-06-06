@@ -35,6 +35,8 @@ module.exports = (sequelize) => {
     mrpFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
     totalDeductions: { type: DataTypes.FLOAT, allowNull: true },
     projectedNet: { type: DataTypes.FLOAT, allowNull: true },
+    isPaid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    paidAt: { type: DataTypes.DATEONLY, allowNull: true },
 
   }, {
     timestamps: true,
