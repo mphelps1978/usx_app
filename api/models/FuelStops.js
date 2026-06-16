@@ -2,7 +2,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
   const FuelStops = sequelize.define('FuelStops', {
-    proNumber: { type: DataTypes.STRING, allowNull: false, references: { model: 'Loads', key: 'proNumber' } },
+    proNumber: { type: DataTypes.STRING, allowNull: true, references: { model: 'Loads', key: 'proNumber' } },
     userId: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'Users', key: 'id' } },
     dateOfStop: { type: DataTypes.DATE, allowNull: false },
     vendor: { type: DataTypes.STRING, allowNull: false },

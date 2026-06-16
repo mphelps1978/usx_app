@@ -37,6 +37,10 @@ module.exports = (sequelize) => {
     projectedNet: { type: DataTypes.FLOAT, allowNull: true },
     isPaid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     paidAt: { type: DataTypes.DATEONLY, allowNull: true },
+    isCancelled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    cancelReason: { type: DataTypes.STRING, allowNull: true },
+    cancelReasonOther: { type: DataTypes.STRING, allowNull: true },
+    cancelledAt: { type: DataTypes.DATEONLY, allowNull: true },
 
   }, {
     timestamps: true,

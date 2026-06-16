@@ -3,11 +3,16 @@ import { useDispatch, useSelector } from "react-redux";
 import {
 	fetchLoads,
 	fetchLastEndingOdometer,
-	deleteLoad,
 	markLoadPaid,
+	cancelLoad,
 } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
+import { getLoadRevenueBeforeFuel } from "../utils/loadRevenue";
+import {
+	getCancelReasonLabel,
+	isActiveLoad,
+} from "../constants/loadCancelReasons";
 import {
 	Box,
 	Button,
@@ -26,9 +31,10 @@ import {
 	Checkbox,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import CancelIcon from "@mui/icons-material/Cancel";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import LoadFormDialog from "./LoadFormDialog";
+import CancelLoadDialog from "./CancelLoadDialog";
 import { formatDateForInput, formatTodayForInput } from "./loadFormUtils";
 
 // Helper function to format date strings for display
@@ -70,74 +76,12 @@ function Loads() {
 	);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [deliverMode, setDeliverMode] = useState(false);
+	const [cancelDialogLoad, setCancelDialogLoad] = useState(null);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
 		dispatch(fetchFuelStops());
 	}, [dispatch]);
-
-	const calculateTotalFuelCost = (proNumber, fuelStopsList) => {
-		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
-		return fuelStopsList
-			.filter((stop) => stop.proNumber === proNumber)
-			.reduce((sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0), 0);
-	};
-
-	const calculateFuelDiscount = (proNumber, fuelStopsList) => {
-		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
-		return fuelStopsList
-			.filter((stop) => stop.proNumber === proNumber)
-			.reduce((sum, stop) => {
-				const gallons = parseFloat(stop.gallonsDieselPurchased) || 0;
-				const pumpPrice = parseFloat(stop.dieselPricePerGallon) || 0;
-				const settledPrice = parseFloat(stop.settledDieselPricePerGallon) || 0;
-
-				if (settledPrice > 0 && settledPrice < pumpPrice) {
-					const discountPerGallon = pumpPrice - settledPrice;
-					return sum + gallons * discountPerGallon;
-				}
-				return sum;
-			}, 0);
-	};
-
-	const calculateNetToTruck = (load, fuelStopsList) => {
-		const actualFuelCost = calculateTotalFuelCost(
-			load.proNumber,
-			fuelStopsList
-		);
-		const fuelDiscount = calculateFuelDiscount(load.proNumber, fuelStopsList);
-		const scaleCost = parseFloat(load.scaleCost) || 0;
-		const calculatedGross = parseFloat(load.calculatedGross) || 0;
-
-		// Get individual deduction rates from userSettings
-		const totalMiles =
-			(parseFloat(load.deadheadMiles) || 0) +
-			(parseFloat(load.loadedMiles) || 0);
-		const fuelRoadUseTaxRate = parseFloat(userSettings?.fuelRoadUseTax) || 0;
-		const maintenanceReserveRate =
-			parseFloat(userSettings?.maintenanceReserve) || 0;
-		const bondDepositRate = parseFloat(userSettings?.bondDeposit) || 0;
-		const mrpFeeRate = parseFloat(userSettings?.mrpFee) || 0;
-
-		const fuelRoadUseDeduction = totalMiles * fuelRoadUseTaxRate;
-		const maintenanceReserveDeduction = totalMiles * maintenanceReserveRate;
-		const bondDepositDeduction = totalMiles * bondDepositRate;
-		const mrpFeeDeduction = totalMiles * mrpFeeRate;
-
-		const totalDeductions =
-			fuelRoadUseDeduction +
-			maintenanceReserveDeduction +
-			bondDepositDeduction +
-			mrpFeeDeduction;
-
-		return (
-			calculatedGross -
-			totalDeductions -
-			actualFuelCost -
-			scaleCost +
-			fuelDiscount
-		);
-	};
 
 	const parseLoadDateMs = (dateStr) => {
 		if (!dateStr || String(dateStr).trim() === "") return 0;
@@ -203,8 +147,24 @@ function Loads() {
 		dispatch(resetForm());
 	};
 
-	const handleDelete = async (proNumber) => {
-		await dispatch(deleteLoad(proNumber));
+	const handleCancelConfirm = async ({
+		cancelReason,
+		cancelReasonOther,
+		unlinkFuelStops,
+	}) => {
+		if (!cancelDialogLoad) return;
+		const result = await dispatch(
+			cancelLoad({
+				proNumber: cancelDialogLoad.proNumber,
+				cancelReason,
+				cancelReasonOther,
+				unlinkFuelStops,
+			})
+		);
+		if (cancelLoad.rejected.match(result)) {
+			throw new Error(result.payload || "Could not cancel load.");
+		}
+		dispatch(fetchFuelStops());
 	};
 
 	const handleTogglePaid = async (load) => {
@@ -271,7 +231,7 @@ function Loads() {
 									)}
 									<TableCell align="right">Rate</TableCell>
 									<TableCell align="right">Gross</TableCell>
-									<TableCell align="right">Net</TableCell>
+									<TableCell align="right">Load revenue</TableCell>
 									<TableCell align="center">Paid</TableCell>
 									<TableCell align="center">Actions</TableCell>
 								</TableRow>
@@ -310,16 +270,16 @@ function Loads() {
 											bondDepositDeduction +
 											mrpFeeDeduction;
 
-										const netToTruckForLoad = calculateNetToTruck(
-											load,
-											allFuelStops
-										);
+										const loadRevenue = getLoadRevenueBeforeFuel(load);
 
 										return (
 											<TableRow
 												key={load.proNumber}
 												sx={{
 													"&:last-child td, &:last-child th": { border: 0 },
+													...(load.isCancelled
+														? { opacity: 0.72, bgcolor: "action.hover" }
+														: {}),
 												}}
 											>
 												<TableCell component="th" scope="row">
@@ -329,7 +289,17 @@ function Loads() {
 													{formatDateForDisplay(load.dateDispatched)}
 												</TableCell>
 												<TableCell>
-													{load.dateDelivered ? (
+													{load.isCancelled ? (
+														<Tooltip title={getCancelReasonLabel(load)}>
+															<Typography
+																color="error"
+																variant="caption"
+																sx={{ fontStyle: "italic" }}
+															>
+																Cancelled
+															</Typography>
+														</Tooltip>
+													) : load.dateDelivered ? (
 														formatDateForDisplay(load.dateDelivered)
 													) : (
 														<Typography
@@ -367,18 +337,25 @@ function Loads() {
 														: "N/A"}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(
-														Math.round((parseFloat(load.calculatedGross) || 0) * 100) /
-														100
-													).toFixed(2)}`}
+													{load.isCancelled
+														? "—"
+														: `$${(
+																Math.round(
+																	(parseFloat(load.calculatedGross) || 0) * 100
+																) / 100
+															).toFixed(2)}`}
 												</TableCell>
 												<TableCell align="right">
-													{`$${(
-														Math.round(netToTruckForLoad * 100) / 100
-													).toFixed(2)}`}
+													{load.isCancelled
+														? "—"
+														: `$${loadRevenue.toFixed(2)}`}
 												</TableCell>
 												<TableCell align="center">
-													{load.dateDelivered ? (
+													{load.isCancelled ? (
+														<Typography variant="caption" color="text.disabled">
+															—
+														</Typography>
+													) : load.dateDelivered ? (
 														<Tooltip
 															title={
 																load.isPaid && load.paidAt
@@ -404,7 +381,7 @@ function Loads() {
 													)}
 												</TableCell>
 												<TableCell align="center">
-													{!load.dateDelivered && (
+													{isActiveLoad(load) && (
 														<Tooltip title="Mark as Delivered">
 															<IconButton
 																onClick={() => handleDeliverLoad(load)}
@@ -416,25 +393,29 @@ function Loads() {
 															</IconButton>
 														</Tooltip>
 													)}
-													<Tooltip title="Edit Load">
-														<IconButton
-															onClick={() => handleEditLoad(load)}
-															color="primary"
-															size="small"
-															sx={{ mr: 1 }}
-														>
-															<EditIcon />
-														</IconButton>
-													</Tooltip>
-													<Tooltip title="Delete Load">
-														<IconButton
-															onClick={() => handleDelete(load.proNumber)}
-															color="error"
-															size="small"
-														>
-															<DeleteIcon />
-														</IconButton>
-													</Tooltip>
+													{!load.isCancelled && (
+														<Tooltip title="Edit Load">
+															<IconButton
+																onClick={() => handleEditLoad(load)}
+																color="primary"
+																size="small"
+																sx={{ mr: 1 }}
+															>
+																<EditIcon />
+															</IconButton>
+														</Tooltip>
+													)}
+													{isActiveLoad(load) && (
+														<Tooltip title="Cancel Load">
+															<IconButton
+																onClick={() => setCancelDialogLoad(load)}
+																color="error"
+																size="small"
+															>
+																<CancelIcon />
+															</IconButton>
+														</Tooltip>
+													)}
 												</TableCell>
 											</TableRow>
 										);
@@ -449,6 +430,15 @@ function Loads() {
 				open={isModalOpen}
 				onClose={handleCloseModal}
 				deliverMode={deliverMode}
+			/>
+			<CancelLoadDialog
+				open={Boolean(cancelDialogLoad)}
+				load={cancelDialogLoad}
+				attachedFuelStops={allFuelStops.filter(
+					(s) => s.proNumber === cancelDialogLoad?.proNumber
+				)}
+				onClose={() => setCancelDialogLoad(null)}
+				onConfirm={handleCancelConfirm}
 			/>
 		</Box>
 	);

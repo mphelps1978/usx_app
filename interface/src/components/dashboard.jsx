@@ -7,9 +7,11 @@ import React, {
 } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom"; // Import useNavigate
-import { fetchLoads, updateLoad, markLoadPaid } from "../store/slices/loadsSlice";
+import { fetchLoads, updateLoad, markLoadPaid, cancelLoad } from "../store/slices/loadsSlice";
 import { fetchFuelStops } from "../store/slices/fuelStopsSlice";
 import { resetForm, setFormData } from "../store/slices/formSlice";
+import { isActiveLoad, countsTowardReconciliation } from "../constants/loadCancelReasons";
+import { getLoadRevenueBeforeFuel } from "../utils/loadRevenue";
 import { Bar, Line } from "react-chartjs-2";
 import {
 	Chart as ChartJS,
@@ -45,8 +47,10 @@ import {
 import { alpha } from "@mui/material/styles";
 // import ChartCaptureButton from "./ChartCaptureButton"; // Disabled - kept for debugging
 import EditIcon from "@mui/icons-material/Edit";
+import CancelIcon from "@mui/icons-material/Cancel";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import LoadFormDialog from "./LoadFormDialog";
+import CancelLoadDialog from "./CancelLoadDialog";
 import OfficeReceiptDialog from "./OfficeReceiptDialog";
 import { formatDateForInput, formatTodayForInput } from "./loadFormUtils";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
@@ -103,6 +107,14 @@ function isDeliveredInSettlementPeriod(load, openingDate, closingDate) {
 	if (!load.dateDelivered) return false;
 	const delivered = new Date(`${load.dateDelivered}T00:00:00Z`);
 	return delivered >= openingDate && delivered <= closingDate;
+}
+
+function isDateInSettlementPeriod(dateStr, openingDate, closingDate) {
+	if (!dateStr || String(dateStr).trim() === "") return false;
+	const s = String(dateStr).trim();
+	const d = new Date(s.includes("T") ? s : `${s}T00:00:00Z`);
+	if (Number.isNaN(d.getTime())) return false;
+	return d >= openingDate && d <= closingDate;
 }
 
 function defaultIncludedProsForWeek(unpaidLoads, openingDate, closingDate) {
@@ -211,9 +223,15 @@ function Dashboard() {
 		(state) => state.fuelStops || { list: [] }
 	);
 
-	const activeLoad = loads.find((load) => !load.dateDelivered);
+	const activeLoad = loads.find((load) => isActiveLoad(load));
 	const [activeLoadEditOpen, setActiveLoadEditOpen] = useState(false);
 	const [deliverMode, setDeliverMode] = useState(false);
+	const [cancelDialogLoad, setCancelDialogLoad] = useState(null);
+
+	const reconciliationLoads = useMemo(
+		() => loads.filter((load) => countsTowardReconciliation(load)),
+		[loads]
+	);
 
 	useEffect(() => {
 		dispatch(fetchLoads());
@@ -258,6 +276,26 @@ function Dashboard() {
 		setActiveLoadEditOpen(true);
 	};
 
+	const handleCancelConfirm = async ({
+		cancelReason,
+		cancelReasonOther,
+		unlinkFuelStops,
+	}) => {
+		if (!cancelDialogLoad) return;
+		const result = await dispatch(
+			cancelLoad({
+				proNumber: cancelDialogLoad.proNumber,
+				cancelReason,
+				cancelReasonOther,
+				unlinkFuelStops,
+			})
+		);
+		if (cancelLoad.rejected.match(result)) {
+			throw new Error(result.payload || "Could not cancel load.");
+		}
+		dispatch(fetchFuelStops());
+	};
+
 	useEffect(() => {
 		if (activeLoadEditOpen && !activeLoad) {
 			setActiveLoadEditOpen(false);
@@ -267,7 +305,7 @@ function Dashboard() {
 
 	/** Delivered loads with full odometer splits; compare dispatched vs actual per segment. */
 	const milesComparisonSummary = useMemo(() => {
-		const deliveredLoads = loads.filter((l) => l.dateDelivered);
+		const deliveredLoads = reconciliationLoads.filter((l) => l.dateDelivered);
 		const qualifying = deliveredLoads.filter((l) => {
 			const dh = l.actualDeadheadMiles;
 			const ld = l.actualLoadedMiles;
@@ -333,7 +371,8 @@ function Dashboard() {
 	// Calculate Net Revenue by Month
 	const monthlyRevenue = {};
 	loads.forEach((load) => {
-		if (load.dateDelivered && load.projectedNet) {
+		if (!countsTowardReconciliation(load)) return;
+		if (load.dateDelivered) {
 			try {
 				const date = new Date(load.dateDelivered);
 				if (isNaN(date.getTime())) {
@@ -346,8 +385,7 @@ function Dashboard() {
 					.toString()
 					.padStart(2, "0")}`;
 				monthlyRevenue[monthYearKey] =
-					(monthlyRevenue[monthYearKey] || 0) +
-					(parseFloat(load.projectedNet) || 0);
+					(monthlyRevenue[monthYearKey] || 0) + getLoadRevenueBeforeFuel(load);
 			} catch (e) {
 				console.error(`Error processing date for load ${load.proNumber}:`, e);
 			}
@@ -370,7 +408,7 @@ function Dashboard() {
 		labels: revenueChartLabels,
 		datasets: [
 			{
-				label: "Net Revenue ($",
+				label: "Load revenue ($)",
 				data: revenueChartDataValues,
 				backgroundColor: ["rgba(75, 192, 192, 0.2)"],
 				borderColor: ["rgba(75, 192, 192, 1)"],
@@ -388,7 +426,8 @@ function Dashboard() {
 
 	const weeklyMilesAndRevenue = {};
 	loads.forEach((load) => {
-		if (load.dateDelivered && load.projectedNet) {
+		if (!countsTowardReconciliation(load)) return;
+		if (load.dateDelivered) {
 			try {
 				const date = new Date(load.dateDelivered);
 				if (isNaN(date.getTime())) return;
@@ -405,7 +444,7 @@ function Dashboard() {
 					(parseFloat(load.loadedMiles) || 0) +
 					(parseFloat(load.deadheadMiles) || 0);
 				weeklyMilesAndRevenue[weekKey].totalNetRevenue +=
-					parseFloat(load.projectedNet) || 0;
+					getLoadRevenueBeforeFuel(load);
 			} catch (e) {
 				console.error(
 					`Error processing data for Weekly Miles/Net Dollar for load ${load.proNumber}:`,
@@ -742,7 +781,7 @@ function Dashboard() {
 
 	const unpaidLoads = useMemo(() => {
 		return [...loads]
-			.filter((load) => load.dateDelivered && !load.isPaid)
+			.filter((load) => load.dateDelivered && !load.isPaid && !load.isCancelled)
 			.sort((a, b) => {
 				const da = new Date(`${a.dateDelivered}T00:00:00Z`).getTime();
 				const db = new Date(`${b.dateDelivered}T00:00:00Z`).getTime();
@@ -830,13 +869,27 @@ function Dashboard() {
 		[dispatch, persistIncludedSettlementPros]
 	);
 
-	const settlementTotal = useMemo(() => {
+	const settlementLoadRevenue = useMemo(() => {
 		const included = new Set(includedSettlementPros);
 		return unpaidLoads.reduce((sum, load) => {
 			if (!included.has(String(load.proNumber))) return sum;
-			return sum + (parseFloat(load.projectedNet) || 0);
+			return sum + getLoadRevenueBeforeFuel(load);
 		}, 0);
 	}, [unpaidLoads, includedSettlementPros]);
+
+	const currentWeekFuelTotal = useMemo(() => {
+		return fuelStops
+			.filter((stop) =>
+				isDateInSettlementPeriod(stop.dateOfStop, openingDate, closingDate)
+			)
+			.reduce((sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0), 0);
+	}, [fuelStops, openingDate, closingDate]);
+
+	const estimatedSettlementNet = useMemo(
+		() =>
+			Math.round((settlementLoadRevenue - currentWeekFuelTotal) * 100) / 100,
+		[settlementLoadRevenue, currentWeekFuelTotal]
+	);
 
 	const settlementIncludedCount = useMemo(() => {
 		const included = new Set(includedSettlementPros);
@@ -900,9 +953,21 @@ function Dashboard() {
 						>
 							<DashboardStatCallout
 								layout="strip"
-								label="Settlement projection"
-								value={`$${settlementTotal.toFixed(2)}`}
-								detail={periodLabel}
+								label="Est. net this period"
+								value={`$${estimatedSettlementNet.toFixed(2)}`}
+								detail={`${periodLabel} · load revenue − fuel`}
+							/>
+							<DashboardStatCallout
+								layout="strip"
+								label="Load revenue (included)"
+								value={`$${(Math.round(settlementLoadRevenue * 100) / 100).toFixed(2)}`}
+								detail="Unpaid loads you included in the estimate"
+							/>
+							<DashboardStatCallout
+								layout="strip"
+								label="Fuel this period"
+								value={`$${(Math.round(currentWeekFuelTotal * 100) / 100).toFixed(2)}`}
+								detail={`${periodLabel} · all stops, with or without a load`}
 							/>
 						</Box>
 					</Grid>
@@ -1075,7 +1140,8 @@ function Dashboard() {
 				<DialogContent dividers>
 					<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
 						Delivery dates are only a guide. Check the loads you expect on this
-						settlement, then mark paid once they appear on your check.
+						settlement, then mark paid once they appear on your check. Amounts are
+						load revenue before fuel; weekly fuel is subtracted on the dashboard.
 					</Typography>
 					{unpaidLoads.length === 0 ? (
 						<Typography variant="body2" color="text.secondary">
@@ -1096,7 +1162,7 @@ function Dashboard() {
 					>
 						{unpaidLoads.map((load) => {
 							const pro = String(load.proNumber);
-							const net = parseFloat(load.projectedNet) || 0;
+							const revenue = getLoadRevenueBeforeFuel(load);
 							const included = includedSettlementPros.includes(pro);
 							const inPeriod = isDeliveredInSettlementPeriod(
 								load,
@@ -1139,7 +1205,7 @@ function Dashboard() {
 											color="text.secondary"
 											display="block"
 										>
-											Delivered {load.dateDelivered} · ${net.toFixed(2)} projected net
+											Delivered {load.dateDelivered} · ${revenue.toFixed(2)} load revenue
 										</Typography>
 									</Box>
 									<Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexShrink: 0 }}>
@@ -1235,6 +1301,15 @@ function Dashboard() {
 						title="Edit Load"
 					>
 						<EditIcon />
+					</IconButton>
+					<IconButton
+						onClick={() => setCancelDialogLoad(activeLoad)}
+						color="error"
+						size="small"
+						sx={{ ml: 1 }}
+						title="Cancel Load"
+					>
+						<CancelIcon />
 					</IconButton>
 					<Button
 						variant="outlined"
@@ -1410,6 +1485,15 @@ function Dashboard() {
 				open={activeLoadEditOpen}
 				onClose={handleCloseActiveLoadEdit}
 				deliverMode={deliverMode}
+			/>
+			<CancelLoadDialog
+				open={Boolean(cancelDialogLoad)}
+				load={cancelDialogLoad}
+				attachedFuelStops={fuelStops.filter(
+					(s) => s.proNumber === cancelDialogLoad?.proNumber
+				)}
+				onClose={() => setCancelDialogLoad(null)}
+				onConfirm={handleCancelConfirm}
 			/>
 		</Box>
 	);

@@ -29,6 +29,7 @@ import {
 	computeClientOdometerDerived,
 	US_STATES,
 } from "./loadFormUtils";
+import { isActiveLoad } from "../constants/loadCancelReasons";
 
 /**
  * Add / edit load modal. Uses shared Redux `form` slice. Parent must pass `onClose`
@@ -39,9 +40,6 @@ function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 	const {
 		list: loadsForTable,
 	} = useSelector((state) => state.loads || { list: [] });
-	const { list: allFuelStops } = useSelector(
-		(state) => state.fuelStops || { list: [] }
-	);
 	const { settings: userSettings } = useSelector(
 		(state) => state.userSettings || { settings: {} }
 	);
@@ -58,13 +56,6 @@ function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 		dispatch(updateFormData({ [name]: value }));
 	};
 
-	const calculateTotalFuelCost = (proNumber, fuelStopsList) => {
-		if (!fuelStopsList || fuelStopsList.length === 0) return 0;
-		return fuelStopsList
-			.filter((stop) => stop.proNumber === proNumber)
-			.reduce((sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0), 0);
-	};
-
 	const {
 		calculatedGrossModal,
 		projectedNetModal,
@@ -78,10 +69,6 @@ function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 		const loadedMiles = parseFloat(formData.loadedMiles) || 0;
 		const scaleCost = parseFloat(formData.scaleCost) || 0;
 
-		const actualFuelCost = calculateTotalFuelCost(
-			formData.proNumber,
-			allFuelStops
-		);
 		const currentTotalMiles = deadheadMiles + loadedMiles;
 
 		let gross = 0;
@@ -120,15 +107,15 @@ function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 			bondDepositDeduction +
 			mrpFeeDeduction;
 
-		const net = gross - totalDeductions - scaleCost - actualFuelCost;
+		const revenue = gross - totalDeductions - scaleCost;
 
 		return {
 			calculatedGrossModal: Math.round(gross * 100) / 100,
-			projectedNetModal: Math.round(net * 100) / 100,
+			projectedNetModal: Math.round(revenue * 100) / 100,
 			totalMilesModal: currentTotalMiles,
 			totalDeductionsModal: Math.round(totalDeductions * 100) / 100,
 		};
-	}, [formData, userSettings, allFuelStops]);
+	}, [formData, userSettings]);
 
 	const odometerDerived = useMemo(
 		() =>
@@ -169,7 +156,7 @@ function LoadFormDialog({ open, onClose, deliverMode = false, dialogTitle }) {
 				if (formData.proNumber && load.proNumber === formData.proNumber) {
 					return false;
 				}
-				return !load.dateDelivered;
+				return isActiveLoad(load);
 			});
 		}
 

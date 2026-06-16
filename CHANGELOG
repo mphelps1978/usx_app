@@ -2,7 +2,17 @@ Changelog
 
 Versions below 1.0.0 use MINOR bumps (0.x.0) for each snapshot you care about; list is newest first.
 
-0.8.0 — current
+0.9.0 — current
+  - Settlement: Est. net this period = included load revenue − fuel for the week (fuel tracked by stop date, not PRO)
+  - Loads: Per-load revenue excludes fuel; dashboard charts use the same formula
+  - One-time migration: recalculates stored `projectedNet` without fuel (gross − deductions − scale)
+  - Fuel stops: PRO is optional — general fuel (no load); edit can reassign or clear PRO
+  - Cancel load: option to move linked fuel stops to general fuel (default on)
+  - Dashboard: Fuel this period — all stops in the settlement week, regardless of load
+  - Loads: Cancel in-transit loads with reason (TONU, dispatch, requested, HOS, other) — kept on record, excluded from settlement and net revenue projections
+  - Loads: Replaced non-functional delete with Cancel on Loads table and dashboard active load
+
+0.8.0
   - Fuel stops: PRO picker is a searchable autocomplete — unpaid loads by default, in-transit first; optional “Show paid loads” for backfill
   - Loads: `isPaid` and `paidAt` on each load (database migration); reopening a load clears paid status
   - Loads table: Paid checkbox for delivered loads

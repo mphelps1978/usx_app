@@ -8,6 +8,11 @@ import {
 	deleteFuelStop,
 } from "../store/slices/fuelStopsSlice";
 import { fetchLoads } from "../store/slices/loadsSlice";
+import { isActiveLoad } from "../constants/loadCancelReasons";
+import {
+	GENERAL_FUEL_OPTION,
+	formatFuelStopProDisplay,
+} from "../constants/fuelStops";
 import {
 	Box,
 	Button,
@@ -107,7 +112,10 @@ const sortLoadsForProPicker = (loadsList) =>
 	});
 
 const filterProPickerLoads = (loadsList, showPaidLoads) =>
-	showPaidLoads ? loadsList : loadsList.filter((load) => !load.isPaid);
+	loadsList.filter((load) => {
+		if (load.isCancelled) return false;
+		return showPaidLoads ? true : !load.isPaid;
+	});
 
 function FuelStops() {
 	const dispatch = useDispatch();
@@ -135,15 +143,31 @@ function FuelStops() {
 	const [receiptFuelStop, setReceiptFuelStop] = useState(null);
 	const [showPaidLoads, setShowPaidLoads] = useState(false);
 
-	const selectedLoad = useMemo(
-		() => loads.find((load) => load.proNumber === formData.proNumber) || null,
-		[loads, formData.proNumber]
-	);
-
 	const proPickerLoads = useMemo(
 		() => sortLoadsForProPicker(filterProPickerLoads(loads, showPaidLoads)),
 		[loads, showPaidLoads]
 	);
+
+	const proPickerOptions = useMemo(() => {
+		let options = [GENERAL_FUEL_OPTION, ...proPickerLoads];
+		if (formData.proNumber) {
+			const inList = options.some(
+				(o) => !o.isGeneralFuel && o.proNumber === formData.proNumber
+			);
+			if (!inList) {
+				const current = loads.find((l) => l.proNumber === formData.proNumber);
+				if (current) {
+					options = [GENERAL_FUEL_OPTION, current, ...proPickerLoads];
+				}
+			}
+		}
+		return options;
+	}, [proPickerLoads, formData.proNumber, loads]);
+
+	const selectedProPickerValue = useMemo(() => {
+		if (!formData.proNumber) return GENERAL_FUEL_OPTION;
+		return loads.find((load) => load.proNumber === formData.proNumber) || null;
+	}, [formData.proNumber, loads]);
 
 	const sortedFuelStops = useMemo(() => {
 		const parseStopMs = (dateStr) => {
@@ -162,7 +186,7 @@ function FuelStops() {
 
 	useEffect(() => {
 		dispatch(fetchFuelStops());
-		dispatch(fetchLoads()); // Fetch loads for the PRO number dropdown
+		dispatch(fetchLoads());
 	}, [dispatch]);
 
 	useEffect(() => {
@@ -196,7 +220,7 @@ function FuelStops() {
 	const handleAddFuelStop = () => {
 		setIsEditing(false);
 		setShowPaidLoads(false);
-		const inTransitLoad = loads.find((load) => !load.dateDelivered);
+		const inTransitLoad = loads.find((load) => isActiveLoad(load));
 		setFormData({
 			...initialFormData,
 			proNumber: inTransitLoad?.proNumber || "",
@@ -210,8 +234,8 @@ function FuelStops() {
 		// Ensure date is formatted correctly for the date input field
 		// And map model field names (from fuelStop) to formData field names (used in form)
 		setFormData({
-			id: fuelStop.id, // Keep the id
-			proNumber: fuelStop.proNumber,
+			id: fuelStop.id,
+			proNumber: fuelStop.proNumber || "",
 			dateOfStop: formatDateForInput(fuelStop.dateOfStop),
 			vendorName: fuelStop.vendor, // Map from 'vendor' (model) to 'vendorName' (form)
 			fuelCardUsed: fuelStop.fuelCardUsed || false, // Defaults to False if not present
@@ -251,7 +275,7 @@ function FuelStops() {
 		}
 
 		const payload = {
-			proNumber: formData.proNumber,
+			proNumber: formData.proNumber ? formData.proNumber : null,
 			dateOfStop: formData.dateOfStop
 				? formatDateForInput(new Date(formData.dateOfStop))
 				: null,
@@ -418,7 +442,7 @@ function FuelStops() {
 									sx={{ "&:last-child td, &:last-child th": { border: 0 } }}
 								>
 									<TableCell component="th" scope="row">
-										{fs.proNumber}
+										{formatFuelStopProDisplay(fs.proNumber)}
 									</TableCell>
 									<TableCell>{formatDateForDisplay(fs.dateOfStop)}</TableCell>
 									<TableCell>{fs.vendor}</TableCell>
@@ -560,72 +584,69 @@ function FuelStops() {
 				<DialogContent>
 					<Grid container spacing={2} sx={{ mt: 1 }}>
 						<Grid item xs={12} sm={6}>
-							{isEditing ? (
-								<TextField
-									label="Load PRO Number"
-									value={
-										selectedLoad
-											? formatLoadProLabel(selectedLoad)
-											: formData.proNumber || ""
+							<Autocomplete
+								options={proPickerOptions}
+								getOptionLabel={(option) =>
+									option.isGeneralFuel
+										? option.label
+										: formatLoadProLabel(option)
+								}
+								value={selectedProPickerValue}
+								onChange={(_, option) =>
+									setFormData((prev) => ({
+										...prev,
+										proNumber:
+											option?.isGeneralFuel || !option?.proNumber
+												? ""
+												: option.proNumber,
+									}))
+								}
+								isOptionEqualToValue={(a, b) => {
+									if (!a || !b) return false;
+									if (a.isGeneralFuel && b.isGeneralFuel) return true;
+									if (a.isGeneralFuel || b.isGeneralFuel) return false;
+									return a.proNumber === b.proNumber;
+								}}
+								filterOptions={(options, { inputValue }) => {
+									const q = inputValue.trim().toLowerCase();
+									if (!q) return options;
+									return options.filter((option) => {
+										if (option.isGeneralFuel) {
+											return option.label.toLowerCase().includes(q);
+										}
+										const label = formatLoadProLabel(option).toLowerCase();
+										return (
+											label.includes(q) ||
+											String(option.proNumber).toLowerCase().includes(q)
+										);
+									});
+								}}
+								renderInput={(params) => (
+									<TextField
+										{...params}
+										label="Load (optional)"
+										margin="dense"
+										placeholder="General fuel or search PRO"
+										helperText={
+											showPaidLoads
+												? "General fuel or any unpaid load"
+												: "General fuel or unpaid loads"
+										}
+									/>
+								)}
+							/>
+							{!isEditing && (
+								<FormControlLabel
+									control={
+										<Checkbox
+											size="small"
+											checked={showPaidLoads}
+											onChange={(e) => setShowPaidLoads(e.target.checked)}
+										/>
 									}
-									fullWidth
-									margin="dense"
-									disabled
-									required
+									label="Show paid loads"
+									sx={{ mt: 0.5 }}
 								/>
-							) : (
-								<>
-									<Autocomplete
-										options={proPickerLoads}
-										getOptionLabel={formatLoadProLabel}
-										value={selectedLoad}
-										onChange={(_, load) =>
-											setFormData((prev) => ({
-												...prev,
-												proNumber: load?.proNumber ?? "",
-											}))
-										}
-										isOptionEqualToValue={(a, b) =>
-											a?.proNumber === b?.proNumber
-										}
-										filterOptions={(options, { inputValue }) => {
-											const q = inputValue.trim().toLowerCase();
-											if (!q) return options;
-											return options.filter((load) => {
-												const label = formatLoadProLabel(load).toLowerCase();
-												return (
-													label.includes(q) ||
-													String(load.proNumber).toLowerCase().includes(q)
-												);
-											});
-										}}
-										renderInput={(params) => (
-											<TextField
-												{...params}
-												label="Load PRO Number"
-												margin="dense"
-												required
-												placeholder="Search PRO or lane"
-												helperText={
-													showPaidLoads
-														? "Showing all loads"
-														: "Showing unpaid loads only"
-												}
-											/>
-										)}
-									/>
-									<FormControlLabel
-										control={
-											<Checkbox
-												size="small"
-												checked={showPaidLoads}
-												onChange={(e) => setShowPaidLoads(e.target.checked)}
-											/>
-										}
-										label="Show paid loads"
-										sx={{ mt: 0.5 }}
-									/>
-								</>
 							)}
 						</Grid>
 						<Grid item xs={12} sm={6}>
@@ -823,9 +844,11 @@ function FuelStops() {
 				<DialogContent>
 					{fuelStopToSettle && (
 						<Box sx={{ mb: 2 }}>
-							<Typography variant="body2" color="text.secondary">
-								Load: {fuelStopToSettle.proNumber}
-							</Typography>
+							{fuelStopToSettle.proNumber && (
+								<Typography variant="body2" color="text.secondary">
+									Load: {fuelStopToSettle.proNumber}
+								</Typography>
+							)}
 							<Typography variant="body2" color="text.secondary">
 								Vendor: {fuelStopToSettle.vendor}
 							</Typography>

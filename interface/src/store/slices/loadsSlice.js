@@ -71,6 +71,24 @@ export const markLoadPaid = createAsyncThunk(
   },
 )
 
+export const cancelLoad = createAsyncThunk(
+  'loads/cancelLoad',
+  async ({ proNumber, cancelReason, cancelReasonOther, unlinkFuelStops }, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().auth
+      const response = await axios.patch(
+        `${apiurl}/loads/${proNumber}/cancel`,
+        { cancelReason, cancelReasonOther, unlinkFuelStops },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+      return response.data
+    } catch (err) {
+      const message = err.response?.data?.message || err.message || 'Failed to cancel load'
+      return rejectWithValue(message)
+    }
+  },
+)
+
 export const deleteLoad = createAsyncThunk('loads/deleteLoad', async (proNumber, { getState }) => {
   const { token } = getState().auth
   const response = await axios.delete(`${apiurl}/loads/${proNumber}`, {
@@ -141,6 +159,17 @@ const loadSlice = createSlice({
         if (index !== -1) state.list[index] = action.payload
       })
       .addCase(markLoadPaid.rejected, (state, action) => {
+        state.error = action.payload ?? action.error.message;
+      })
+      // cancelLoad
+      .addCase(cancelLoad.fulfilled, (state, action) => {
+        const { unlinkedFuelStopCount, unlinkedFuelTotal, ...load } = action.payload
+        void unlinkedFuelStopCount
+        void unlinkedFuelTotal
+        const index = state.list.findIndex((l) => l.proNumber === load.proNumber)
+        if (index !== -1) state.list[index] = load
+      })
+      .addCase(cancelLoad.rejected, (state, action) => {
         state.error = action.payload ?? action.error.message;
       })
       // deleteLoad

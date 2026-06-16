@@ -23,6 +23,7 @@ const {
   normalizeFixedExpensesInput,
 } = require('./constants/fixedExpenses');
 const { ALLOWED_OFFICE_EXPENSE_CATEGORY_VALUES } = require('./constants/officeExpenseCategories');
+const { isValidCancelReason } = require('./constants/loadCancelReasons');
 
 function utcDateOnlyString(d = new Date()) {
   const y = d.getUTCFullYear();
@@ -133,11 +134,31 @@ function jwtExpiresForRemember(rememberMe) {
   return process.env.JWT_SESSION_EXPIRES || '8h';
 }
 
+/** Resolve optional fuel-stop PRO: null/blank = general fuel; otherwise validate load. */
+async function resolveOptionalFuelStopPro(Loads, proNumber, userId) {
+  if (proNumber === undefined || proNumber === null || proNumber === '') {
+    return null;
+  }
+  const load = await Loads.findOne({ where: { proNumber, userId } });
+  if (!load) {
+    const err = new Error('Associated load not found or access denied.');
+    err.status = 404;
+    throw err;
+  }
+  if (load.isCancelled) {
+    const err = new Error('Cannot attach fuel to a cancelled load.');
+    err.status = 400;
+    throw err;
+  }
+  return proNumber;
+}
+
 /** Most recent delivered load's ending odometer for starting the next load. */
 async function getLastDeliveredEndingOdometer(Loads, userId) {
   const last = await Loads.findOne({
     where: {
       userId,
+      isCancelled: false,
       dateDelivered: { [Op.ne]: null },
       endingOdometer: { [Op.ne]: null },
     },
@@ -458,6 +479,7 @@ async function startServer() {
             where: {
               userId: req.userId,
               dateDelivered: null,
+              isCancelled: false,
             },
           });
           if (existingActiveLoad) {
@@ -566,6 +588,9 @@ async function startServer() {
           where: { proNumber, userId: req.userId },
         });
         if (!loadToUpdate) return res.status(404).json({ message: 'Load not found' });
+        if (loadToUpdate.isCancelled) {
+          return res.status(400).json({ message: 'Cancelled loads cannot be edited.' });
+        }
 
         const {
           driverPayType, // Will be undefined if not sent, handled below
@@ -619,6 +644,7 @@ async function startServer() {
             where: {
               userId: req.userId,
               dateDelivered: null,
+              isCancelled: false,
               proNumber: { [Op.ne]: proNumber }, // Exclude the current load
             },
           });
@@ -771,6 +797,9 @@ async function startServer() {
           where: { proNumber, userId: req.userId },
         });
         if (!loadToUpdate) return res.status(404).json({ message: 'Load not found' });
+        if (loadToUpdate.isCancelled) {
+          return res.status(400).json({ message: 'Cancelled loads cannot be marked paid.' });
+        }
 
         if (!Object.prototype.hasOwnProperty.call(req.body, 'isPaid')) {
           return res.status(400).json({ message: 'isPaid is required.' });
@@ -788,6 +817,72 @@ async function startServer() {
       }
     });
 
+    // Cancel load (in-transit only — excluded from settlement / revenue projections)
+    app.patch('/api/loads/:proNumber/cancel', authenticate, async (req, res) => {
+      try {
+        const { proNumber } = req.params;
+        const { cancelReason, cancelReasonOther, unlinkFuelStops } = req.body;
+
+        const loadToUpdate = await Loads.findOne({
+          where: { proNumber, userId: req.userId },
+        });
+        if (!loadToUpdate) return res.status(404).json({ message: 'Load not found' });
+        if (loadToUpdate.isCancelled) {
+          return res.status(400).json({ message: 'Load is already cancelled.' });
+        }
+        if (loadToUpdate.dateDelivered) {
+          return res.status(400).json({ message: 'Delivered loads cannot be cancelled.' });
+        }
+        if (!cancelReason || !isValidCancelReason(cancelReason)) {
+          return res.status(400).json({ message: 'A valid cancellation reason is required.' });
+        }
+        const otherText =
+          cancelReasonOther != null ? String(cancelReasonOther).trim() : '';
+        if (cancelReason === 'other' && !otherText) {
+          return res.status(400).json({
+            message: 'Please specify a reason when selecting Other.',
+          });
+        }
+
+        let unlinkedFuelStopCount = 0;
+        let unlinkedFuelTotal = 0;
+        if (unlinkFuelStops) {
+          const attachedStops = await FuelStops.findAll({
+            where: { proNumber, userId: req.userId },
+          });
+          unlinkedFuelStopCount = attachedStops.length;
+          unlinkedFuelTotal = attachedStops.reduce(
+            (sum, stop) => sum + (parseFloat(stop.totalFuelStop) || 0),
+            0,
+          );
+          if (unlinkedFuelStopCount > 0) {
+            await FuelStops.update(
+              { proNumber: null },
+              { where: { proNumber, userId: req.userId } },
+            );
+          }
+        }
+
+        await loadToUpdate.update({
+          isCancelled: true,
+          cancelReason,
+          cancelReasonOther: cancelReason === 'other' ? otherText : null,
+          cancelledAt: utcDateOnlyString(),
+          isPaid: false,
+          paidAt: null,
+        });
+        await loadToUpdate.reload();
+        res.json({
+          ...loadToUpdate.toJSON(),
+          unlinkedFuelStopCount,
+          unlinkedFuelTotal: Math.round(unlinkedFuelTotal * 100) / 100,
+        });
+      } catch (err) {
+        console.error('[SERVER] Error cancelling load:', err);
+        res.status(500).json({ message: 'Server error during load cancellation' });
+      }
+    });
+
     // Complete Load (Set dateDelivered to now)
     app.put('/api/loads/:proNumber/complete', authenticate, async (req, res) => {
       try {
@@ -795,6 +890,9 @@ async function startServer() {
           where: { proNumber: req.params.proNumber, userId: req.userId },
         });
         if (!load) return res.status(404).json({ message: 'Load not found' });
+        if (load.isCancelled) {
+          return res.status(400).json({ message: 'Cancelled loads cannot be completed.' });
+        }
         if (load.dateDelivered) {
           return res.status(400).json({ message: 'Load already completed' });
         }
@@ -840,7 +938,7 @@ async function startServer() {
         } = req.body;
 
         // Validate required fields from the frontend payload
-        const requiredFrontendFields = ['proNumber', 'dateOfStop', 'vendorName', 'gallonsDieselPurchased', 'pumpPriceDiesel'];
+        const requiredFrontendFields = ['dateOfStop', 'vendorName', 'gallonsDieselPurchased', 'pumpPriceDiesel'];
         for (const field of requiredFrontendFields) {
           const value = req.body[field];
           if (value === undefined || value === null || value === '') {
@@ -850,10 +948,11 @@ async function startServer() {
           }
         }
 
-        // Check if the associated load exists and belongs to the user
-        const load = await Loads.findOne({ where: { proNumber, userId: req.userId } });
-        if (!load) {
-          return res.status(404).json({ message: 'Associated load not found or access denied.' });
+        let resolvedProNumber;
+        try {
+          resolvedProNumber = await resolveOptionalFuelStopPro(Loads, proNumber, req.userId);
+        } catch (proErr) {
+          return res.status(proErr.status || 400).json({ message: proErr.message });
         }
 
         const gdp = parseFloat(gallonsDieselPurchased);
@@ -898,7 +997,7 @@ async function startServer() {
         // Map frontend payload and calculated values to the FuelStops model fields
         // Ensure your FuelStops model uses these camelCase field names
         const fuelStopData = {
-          proNumber,
+          proNumber: resolvedProNumber,
           userId: req.userId,
           dateOfStop: new Date(dateOfStop), // Convert to Date object
           vendor: vendorName, // Map vendorName to 'vendor' model field
@@ -961,6 +1060,7 @@ async function startServer() {
         }
 
         const {
+          proNumber,
           dateOfStop,
           vendorName, // from frontend
           gallonsDieselPurchased, // Expecting camelCase
@@ -974,6 +1074,13 @@ async function startServer() {
 
         // Construct updateData carefully, only including fields that are present in req.body
         const updateData = {};
+        if (Object.prototype.hasOwnProperty.call(req.body, 'proNumber')) {
+          try {
+            updateData.proNumber = await resolveOptionalFuelStopPro(Loads, proNumber, req.userId);
+          } catch (proErr) {
+            return res.status(proErr.status || 400).json({ message: proErr.message });
+          }
+        }
         if (dateOfStop !== undefined) updateData.dateOfStop = new Date(dateOfStop);
         if (vendorName !== undefined) updateData.vendor = vendorName; // Map to model field 'vendor'
 
