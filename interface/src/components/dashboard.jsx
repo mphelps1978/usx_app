@@ -117,12 +117,8 @@ function isDateInSettlementPeriod(dateStr, openingDate, closingDate) {
 	return d >= openingDate && d <= closingDate;
 }
 
-function defaultIncludedProsForWeek(unpaidLoads, openingDate, closingDate) {
-	return unpaidLoads
-		.filter((load) =>
-			isDeliveredInSettlementPeriod(load, openingDate, closingDate)
-		)
-		.map((load) => String(load.proNumber));
+function defaultIncludedProsForWeek(unpaidLoads) {
+	return unpaidLoads.map((load) => String(load.proNumber));
 }
 
 /** Makes headline averages / totals easy to scan vs surrounding caption text */
@@ -780,14 +776,24 @@ function Dashboard() {
 	}, []);
 
 	const unpaidLoads = useMemo(() => {
+		const parseMs = (dateStr) => {
+			if (!dateStr || String(dateStr).trim() === "") return 0;
+			const s = String(dateStr).trim();
+			const d = s.includes("T") ? new Date(s) : new Date(`${s}T00:00:00Z`);
+			const t = d.getTime();
+			return Number.isNaN(t) ? 0 : t;
+		};
 		return [...loads]
-			.filter((load) => load.dateDelivered && !load.isPaid && !load.isCancelled)
+			.filter((load) => !load.isPaid && !load.isCancelled)
 			.sort((a, b) => {
-				const da = new Date(`${a.dateDelivered}T00:00:00Z`).getTime();
-				const db = new Date(`${b.dateDelivered}T00:00:00Z`).getTime();
-				const na = Number.isNaN(da) ? 0 : da;
-				const nb = Number.isNaN(db) ? 0 : db;
-				if (nb !== na) return nb - na;
+				const aTransit = !a.dateDelivered;
+				const bTransit = !b.dateDelivered;
+				if (aTransit !== bTransit) return aTransit ? -1 : 1;
+				const keyA = a.dateDelivered || a.dateDispatched;
+				const keyB = b.dateDelivered || b.dateDispatched;
+				const msA = parseMs(keyA);
+				const msB = parseMs(keyB);
+				if (msB !== msA) return msB - msA;
 				return String(b.proNumber).localeCompare(String(a.proNumber));
 			});
 	}, [loads]);
@@ -825,18 +831,12 @@ function Dashboard() {
 			return;
 		}
 
-		const defaults = defaultIncludedProsForWeek(
-			unpaidLoads,
-			openingDate,
-			closingDate
-		);
+		const defaults = defaultIncludedProsForWeek(unpaidLoads);
 		setIncludedSettlementPros(defaults);
 		persistIncludedSettlementPros(defaults);
 	}, [
 		closingWedStr,
 		unpaidLoads,
-		openingDate,
-		closingDate,
 		persistIncludedSettlementPros,
 	]);
 
@@ -961,7 +961,7 @@ function Dashboard() {
 								layout="strip"
 								label="Load revenue (included)"
 								value={`$${(Math.round(settlementLoadRevenue * 100) / 100).toFixed(2)}`}
-								detail="Unpaid loads you included in the estimate"
+								detail="Unpaid and in-transit loads you included in the estimate"
 							/>
 							<DashboardStatCallout
 								layout="strip"
@@ -1071,10 +1071,10 @@ function Dashboard() {
 									<>
 										<Typography variant="caption" color="text.secondary">
 											{settlementIncludedCount === unpaidLoads.length
-												? `${unpaidLoads.length} unpaid load${
+												? `${unpaidLoads.length} load${
 														unpaidLoads.length !== 1 ? "s" : ""
 													} in estimate`
-												: `${settlementIncludedCount} of ${unpaidLoads.length} unpaid load${
+												: `${settlementIncludedCount} of ${unpaidLoads.length} load${
 														unpaidLoads.length !== 1 ? "s" : ""
 													} in estimate`}
 										</Typography>
@@ -1083,12 +1083,12 @@ function Dashboard() {
 											variant="outlined"
 											onClick={() => setSettlementProsModalOpen(true)}
 										>
-											View / edit unpaid PROs
+											View / edit included PROs
 										</Button>
 									</>
 								) : (
 									<Typography variant="caption" color="text.secondary">
-										No unpaid delivered loads.
+										No unpaid or in-transit loads.
 									</Typography>
 								)}
 							</Box>
@@ -1139,13 +1139,15 @@ function Dashboard() {
 				</DialogTitle>
 				<DialogContent dividers>
 					<Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-						Delivery dates are only a guide. Check the loads you expect on this
-						settlement, then mark paid once they appear on your check. Amounts are
-						load revenue before fuel; weekly fuel is subtracted on the dashboard.
+						Includes unpaid delivered loads and in-transit loads (assumed
+						delivered by period close). Uncheck any you do not expect on this
+						settlement. Mark paid once delivered loads appear on your check. Amounts
+						are load revenue before fuel; weekly fuel is subtracted on the
+						dashboard.
 					</Typography>
 					{unpaidLoads.length === 0 ? (
 						<Typography variant="body2" color="text.secondary">
-							All delivered loads are marked paid.
+							No unpaid or in-transit loads.
 						</Typography>
 					) : (
 					<Stack
@@ -1164,11 +1166,14 @@ function Dashboard() {
 							const pro = String(load.proNumber);
 							const revenue = getLoadRevenueBeforeFuel(load);
 							const included = includedSettlementPros.includes(pro);
-							const inPeriod = isDeliveredInSettlementPeriod(
-								load,
-								openingDate,
-								closingDate
-							);
+							const inTransit = !load.dateDelivered;
+							const inPeriod =
+								!inTransit &&
+								isDeliveredInSettlementPeriod(
+									load,
+									openingDate,
+									closingDate
+								);
 							return (
 								<Stack
 									component="li"
@@ -1189,7 +1194,17 @@ function Dashboard() {
 									<Box sx={{ minWidth: 0, flex: 1 }}>
 										<Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
 											PRO {pro}
-											{!inPeriod && (
+											{inTransit && (
+												<Typography
+													component="span"
+													variant="caption"
+													color="info.main"
+													sx={{ ml: 1 }}
+												>
+													in transit
+												</Typography>
+											)}
+											{!inTransit && !inPeriod && (
 												<Typography
 													component="span"
 													variant="caption"
@@ -1205,7 +1220,9 @@ function Dashboard() {
 											color="text.secondary"
 											display="block"
 										>
-											Delivered {load.dateDelivered} · ${revenue.toFixed(2)} load revenue
+											{inTransit
+												? `Dispatched ${load.dateDispatched} · $${revenue.toFixed(2)} projected revenue`
+												: `Delivered ${load.dateDelivered} · $${revenue.toFixed(2)} load revenue`}
 										</Typography>
 									</Box>
 									<Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexShrink: 0 }}>
@@ -1223,14 +1240,16 @@ function Dashboard() {
 											label="Include"
 											sx={{ mr: 0 }}
 										/>
-										<Button
-											size="small"
-											variant="outlined"
-											color="success"
-											onClick={() => handleMarkLoadPaid(pro)}
-										>
-											Mark paid
-										</Button>
+										{load.dateDelivered && (
+											<Button
+												size="small"
+												variant="outlined"
+												color="success"
+												onClick={() => handleMarkLoadPaid(pro)}
+											>
+												Mark paid
+											</Button>
+										)}
 									</Stack>
 								</Stack>
 							);

@@ -3,6 +3,7 @@ Changelog
 Versions below 1.0.0 use MINOR bumps (0.x.0) for each snapshot you care about; list is newest first.
 
 0.9.0 — current
+  - Dashboard: Settlement estimate includes in-transit loads (projected revenue) and all unpaid delivered loads by default — uncheck in modal to exclude
   - Settlement: Est. net this period = included load revenue − fuel for the week (fuel tracked by stop date, not PRO)
   - Loads: Per-load revenue excludes fuel; dashboard charts use the same formula
   - One-time migration: recalculates stored `projectedNet` without fuel (gross − deductions − scale)
