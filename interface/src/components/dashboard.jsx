@@ -85,15 +85,15 @@ function getSettlementWeekKey(date) {
 	return `${year}-${month}-${day}`;
 }
 
-const SETTLEMENT_INCLUDED_STORAGE_PREFIX =
-	"usx_dashboard_settlement_included_pros";
+const SETTLEMENT_EXCLUDED_STORAGE_PREFIX =
+	"usx_dashboard_settlement_excluded_pros";
 
-/** Returns null if this week has never been initialized in localStorage. */
-function readIncludedProsForWeek(closingWedStr) {
+/** Returns null if this week has no saved exclusions (default: include all). */
+function readExcludedProsForWeek(closingWedStr) {
 	if (typeof localStorage === "undefined") return null;
 	try {
 		const raw = localStorage.getItem(
-			`${SETTLEMENT_INCLUDED_STORAGE_PREFIX}:${closingWedStr}`
+			`${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`
 		);
 		if (raw === null) return null;
 		const parsed = raw ? JSON.parse(raw) : [];
@@ -101,6 +101,14 @@ function readIncludedProsForWeek(closingWedStr) {
 	} catch {
 		return null;
 	}
+}
+
+function isLoadInTransit(load) {
+	return (
+		load &&
+		!load.isCancelled &&
+		(!load.dateDelivered || String(load.dateDelivered).trim() === "")
+	);
 }
 
 function isDeliveredInSettlementPeriod(load, openingDate, closingDate) {
@@ -115,10 +123,6 @@ function isDateInSettlementPeriod(dateStr, openingDate, closingDate) {
 	const d = new Date(s.includes("T") ? s : `${s}T00:00:00Z`);
 	if (Number.isNaN(d.getTime())) return false;
 	return d >= openingDate && d <= closingDate;
-}
-
-function defaultIncludedProsForWeek(unpaidLoads) {
-	return unpaidLoads.map((load) => String(load.proNumber));
 }
 
 /** Makes headline averages / totals easy to scan vs surrounding caption text */
@@ -798,12 +802,12 @@ function Dashboard() {
 			});
 	}, [loads]);
 
-	const [includedSettlementPros, setIncludedSettlementPros] = useState([]);
+	const [excludedSettlementPros, setExcludedSettlementPros] = useState([]);
 
-	const persistIncludedSettlementPros = useCallback(
+	const persistExcludedSettlementPros = useCallback(
 		(nextList) => {
 			if (typeof localStorage === "undefined") return;
-			const key = `${SETTLEMENT_INCLUDED_STORAGE_PREFIX}:${closingWedStr}`;
+			const key = `${SETTLEMENT_EXCLUDED_STORAGE_PREFIX}:${closingWedStr}`;
 			try {
 				localStorage.setItem(key, JSON.stringify(nextList));
 			} catch {
@@ -814,44 +818,63 @@ function Dashboard() {
 	);
 
 	useLayoutEffect(() => {
-		const stored = readIncludedProsForWeek(closingWedStr);
 		const unpaidSet = new Set(unpaidLoads.map((l) => String(l.proNumber)));
+		let excluded = readExcludedProsForWeek(closingWedStr);
 
-		if (stored !== null) {
-			const filtered = stored.filter((p) => unpaidSet.has(p));
-			setIncludedSettlementPros(filtered);
-			if (filtered.length !== stored.length) {
-				persistIncludedSettlementPros(filtered);
+		if (excluded === null) {
+			if (typeof localStorage !== "undefined") {
+				try {
+					const legacyKey = `usx_dashboard_settlement_included_pros:${closingWedStr}`;
+					const legacyRaw = localStorage.getItem(legacyKey);
+					if (legacyRaw !== null) {
+						const legacyIncluded = JSON.parse(legacyRaw);
+						if (Array.isArray(legacyIncluded)) {
+							const legacyIncludedSet = new Set(
+								legacyIncluded.map(String)
+							);
+							excluded = unpaidLoads
+								.filter((load) => {
+									const pro = String(load.proNumber);
+									if (isLoadInTransit(load)) return false;
+									return !legacyIncludedSet.has(pro);
+								})
+								.map((load) => String(load.proNumber));
+						}
+					}
+				} catch {
+					// fall through to default
+				}
 			}
-			return;
+			if (excluded === null) excluded = [];
+			persistExcludedSettlementPros(excluded);
 		}
 
-		if (unpaidLoads.length === 0) {
-			setIncludedSettlementPros([]);
-			return;
+		const pruned = excluded.filter((p) => unpaidSet.has(p));
+		setExcludedSettlementPros(pruned);
+		if (pruned.length !== excluded.length) {
+			persistExcludedSettlementPros(pruned);
 		}
+	}, [closingWedStr, unpaidLoads, persistExcludedSettlementPros]);
 
-		const defaults = defaultIncludedProsForWeek(unpaidLoads);
-		setIncludedSettlementPros(defaults);
-		persistIncludedSettlementPros(defaults);
-	}, [
-		closingWedStr,
-		unpaidLoads,
-		persistIncludedSettlementPros,
-	]);
+	const includedSettlementPros = useMemo(() => {
+		const excluded = new Set(excludedSettlementPros);
+		return unpaidLoads
+			.filter((load) => !excluded.has(String(load.proNumber)))
+			.map((load) => String(load.proNumber));
+	}, [unpaidLoads, excludedSettlementPros]);
 
 	const toggleSettlementProIncluded = useCallback(
 		(proNumber) => {
 			const key = String(proNumber);
-			setIncludedSettlementPros((prev) => {
+			setExcludedSettlementPros((prev) => {
 				const next = prev.includes(key)
 					? prev.filter((p) => p !== key)
 					: [...prev, key];
-				persistIncludedSettlementPros(next);
+				persistExcludedSettlementPros(next);
 				return next;
 			});
 		},
-		[persistIncludedSettlementPros]
+		[persistExcludedSettlementPros]
 	);
 
 	const handleMarkLoadPaid = useCallback(
@@ -859,14 +882,14 @@ function Dashboard() {
 			const key = String(proNumber);
 			const result = await dispatch(markLoadPaid({ proNumber: key, isPaid: true }));
 			if (markLoadPaid.fulfilled.match(result)) {
-				setIncludedSettlementPros((prev) => {
+				setExcludedSettlementPros((prev) => {
 					const next = prev.filter((p) => p !== key);
-					persistIncludedSettlementPros(next);
+					persistExcludedSettlementPros(next);
 					return next;
 				});
 			}
 		},
-		[dispatch, persistIncludedSettlementPros]
+		[dispatch, persistExcludedSettlementPros]
 	);
 
 	const settlementLoadRevenue = useMemo(() => {
@@ -1165,8 +1188,8 @@ function Dashboard() {
 						{unpaidLoads.map((load) => {
 							const pro = String(load.proNumber);
 							const revenue = getLoadRevenueBeforeFuel(load);
-							const included = includedSettlementPros.includes(pro);
-							const inTransit = !load.dateDelivered;
+							const included = !excludedSettlementPros.includes(pro);
+							const inTransit = isLoadInTransit(load);
 							const inPeriod =
 								!inTransit &&
 								isDeliveredInSettlementPeriod(
